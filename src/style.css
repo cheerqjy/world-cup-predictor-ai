@@ -785,6 +785,8 @@ body {
 .rec-picks { display: flex; flex-direction: column; gap: 10px; }
 .rec-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
 .rec-card.rec-done { border-left: 3px solid var(--green); }
+.rec-card.rec-pending { border-left: 3px solid var(--accent); }
+.rec-pending-note { color: var(--accent); font-size: 0.75rem; font-weight: 600; }
 .rec-teams { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .rec-team { font-weight: 600; font-size: 0.9rem; }
 .rec-vs { color: var(--text2); font-size: 0.75rem; }

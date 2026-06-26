@@ -25,6 +25,7 @@ interface Pick {
     confidence: number; confidence_detail?: string
   }
   completed: boolean
+  pending?: boolean
   actual: { home: number; away: number; half_home: number; half_away: number } | null
   hits: { score: number; result: number; total: number; half_full: number; rq_result: number } | null
   markets?: Market[]
@@ -264,7 +265,7 @@ export function Recommend() {
             {active.picks.map(p => {
               const isExpanded = expandedCards.has(p.match_id)
               return (
-              <div key={p.match_id} className={`rec-card rec-market-card ${p.completed ? 'rec-done' : ''}`}>
+              <div key={p.match_id} className={`rec-card rec-market-card ${p.completed ? 'rec-done' : ''} ${p.pending ? 'rec-pending' : ''}`}>
                 <div className="rec-card-top" style={{cursor: 'pointer'}} onClick={() => {
                   setExpandedCards(prev => {
                     const next = new Set(prev)
@@ -332,6 +333,7 @@ export function Recommend() {
                   <span className="rec-pred-brief">比分 {p.prediction.home_score ?? '-'}:{p.prediction.away_score ?? '-'} · 胜平负 {getResultLabel(p.prediction.result_1x2)}</span>
                   {p.prediction.handicap_result && <span className="rec-pred-brief">{p.prediction.handicap_result}</span>}
                   {p.prediction.total_goals_2 && <span className="rec-secondary-note">总进球次选 {p.prediction.total_goals_2}球</span>}
+                  {p.pending && <span className="rec-pending-note">⏳ 待更新赛果</span>}
                   {p.actual && <span className="rec-actual-note">实际 {p.actual.home}:{p.actual.away} / {formatHalfFullLabel(getHalfFullResultLabel(p.actual))}</span>}
                 </div>
               </div>

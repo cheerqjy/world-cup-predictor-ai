@@ -524,7 +524,31 @@ router.get('/', async (req, res) => {
     ORDER BY m.match_date DESC, m.match_number ASC
   `).all()
 
+  // 过期但未完成的比赛（日期已过但状态仍为scheduled/live）
+  const orphaned = db.prepare(`
+    SELECT p.id as pred_id, p.match_id, p.home_score, p.away_score,
+      p.half_home_score, p.half_away_score, p.result_1x2, p.total_goals, p.total_goals_2, p.handicap_result,
+      p.half_full_result, p.confidence, p.confidence_detail,
+      m.match_date, m.match_time, m.round, m.group_name, m.match_number, m.status,
+      m.home_team_id, m.away_team_id,
+      m.home_score as actual_home, m.away_score as actual_away,
+      m.half_home_score as actual_half_home, m.half_away_score as actual_half_away,
+      ht.name_cn as home_name_cn, ht.flag as home_flag, ht.ranking as home_ranking,
+      at.name_cn as away_name_cn, at.flag as away_flag, at.ranking as away_ranking
+    FROM matches m
+    LEFT JOIN predictions p ON p.match_id = m.id AND p.id = (
+      SELECT MAX(id) FROM predictions WHERE match_id = m.id
+    )
+    LEFT JOIN teams ht ON m.home_team_id = ht.id
+    LEFT JOIN teams at ON m.away_team_id = at.id
+    WHERE m.status != 'completed' AND m.match_date < ?
+      AND m.home_team_id IS NOT NULL AND m.home_team_id != ''
+    ORDER BY m.match_date DESC, m.match_number ASC
+  `).all(startDate)
+
   function formatPick(r) {
+    const isCompleted = r.status === 'completed'
+    const isPending = !isCompleted && r.match_date < startDate
     return {
       match_id: r.match_id,
       date: r.match_date, time: r.match_time, round: r.round, group_name: r.group_name, match_number: r.match_number,
@@ -536,12 +560,13 @@ router.get('/', async (req, res) => {
         half_full_result: r.half_full_result,
         confidence: r.confidence, confidence_detail: r.confidence_detail,
       },
-      completed: r.status === 'completed',
-      actual: r.status === 'completed' ? {
+      completed: isCompleted,
+      pending: isPending,
+      actual: isCompleted ? {
         home: r.actual_home, away: r.actual_away,
         half_home: r.actual_half_home, half_away: r.actual_half_away,
       } : null,
-      hits: r.status === 'completed' ? computeHits(r) : null,
+      hits: isCompleted ? computeHits(r) : null,
     }
   }
 
@@ -584,7 +609,13 @@ router.get('/', async (req, res) => {
   for (const r of past) {
     const date = r.match_date || 'unknown'
     if (!pastByDate[date]) pastByDate[date] = []
-    if (pastByDate[date].length < 4) pastByDate[date].push(r)
+    if (pastByDate[date].length < 16) pastByDate[date].push(r)
+  }
+  // 合并过期未完成的比赛到历史记录中
+  for (const r of orphaned) {
+    const date = r.match_date || 'unknown'
+    if (!pastByDate[date]) pastByDate[date] = []
+    if (pastByDate[date].length < 16) pastByDate[date].push(r)
   }
   const pastDays = Object.entries(pastByDate).map(([date, rows]) => {
     const dayPack = buildRecommendationPackage(rows.map(formatPick), realOddsMap)
