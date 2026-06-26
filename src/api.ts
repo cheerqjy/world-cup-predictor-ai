@@ -63,5 +63,8 @@ export const api = {
     list() {
       return request('/recommendations')
     },
+    snapshots() {
+      return request('/recommendations/snapshots')
+    },
   },
 }

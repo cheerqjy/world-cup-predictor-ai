@@ -75,7 +75,7 @@ export function History() {
                     <div className="compare-header">
                       <span className="match-round-badge">{p.round}</span>
                       {p.group_name && <span className="match-group-badge">第{p.group_name}组</span>}
-                      <span className="match-date">{p.match_date} {p.match_time ? p.match_time.slice(0,5) : ''}</span>
+                      <span className="match-date">{p.match_date ? `${p.match_date.slice(5,7)}月${p.match_date.slice(8,10)}日` : ''} {p.match_time ? p.match_time.slice(0,5) : ''}</span>
                     </div>
                     <div className="compare-body">
                       <div className="compare-teams">
@@ -125,7 +125,7 @@ export function History() {
               <div className="history-header">
                 <span className="match-round-badge">{p.round}</span>
                 {p.group_name && <span className="match-group-badge">第{p.group_name}组</span>}
-                <span className="match-date">{p.match_date} {p.match_time ? p.match_time.slice(0,5) : ''}</span>
+                <span className="match-date">{p.match_date ? `${p.match_date.slice(5,7)}月${p.match_date.slice(8,10)}日` : ''} {p.match_time ? p.match_time.slice(0,5) : ''}</span>
                 <span className="history-time">{p.predicted_at}</span>
               </div>
               <div className="history-body">

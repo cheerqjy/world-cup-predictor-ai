@@ -52,6 +52,41 @@ function isFutureDate(dateStr) {
   return dateStr > todayStr
 }
 
+// 获取体彩推荐日期（11点开售，11点前算昨天，11点后推荐今天）
+function getRecommendDate() {
+  const now = getBeijingNow()
+  const hour = parseInt(now.toISOString().substring(11, 13))
+  const dateStr = now.toISOString().split('T')[0]
+  // 11点前，今天的比赛还没开售，推荐昨天的比赛
+  if (hour < 11) {
+    const d = new Date(dateStr + 'T12:00:00')
+    d.setDate(d.getDate() - 1)
+    return d.toISOString().split('T')[0]
+  }
+  // 11点后，今天的比赛正在销售，推荐今天的比赛
+  return dateStr
+}
+
+// 判断比赛是否已过停售时间（开球前15分钟）
+function isMatchExpired(matchDate, matchTime) {
+  if (!matchDate || !matchTime) return false
+  const now = getBeijingNow()
+  // 比赛开球时间（北京时间）
+  const kickOff = new Date(matchDate + 'T' + matchTime + ':00')
+  // 停售时间 = 开球前15分钟
+  const cutoff = new Date(kickOff.getTime() - 15 * 60 * 1000)
+  return now >= cutoff
+}
+
+// 获取当前时间的北京时间小时和分钟
+function getBeijingHourMin() {
+  const now = getBeijingNow()
+  const iso = now.toISOString()
+  const hour = parseInt(iso.substring(11, 13))
+  const min = parseInt(iso.substring(14, 16))
+  return { hour, min, totalMin: hour * 60 + min }
+}
+
 // 初始化时间（兼容旧接口，无需实际操作）
 async function initTime() {
   console.log(`[TZ] 使用北京时间偏移模式 (UTC+8)`)
@@ -66,5 +101,8 @@ module.exports = {
   utcToBeijingDate,
   utcToBeijingTime,
   isFutureDate,
+  getRecommendDate,
+  isMatchExpired,
+  getBeijingHourMin,
   initTime,
 }

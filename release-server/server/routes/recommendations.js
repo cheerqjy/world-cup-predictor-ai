@@ -1,7 +1,7 @@
 const express = require('express')
 const { getDb } = require('../db')
 const { fetchOdds, getOddsForMatch } = require('../odds')
-const { getBeijingDateStr } = require('../tz')
+const { getBeijingDateStr, getBeijingNow, getRecommendDate, isMatchExpired, getBeijingHourMin } = require('../tz')
 
 const router = express.Router()
 
@@ -39,6 +39,22 @@ const MARKET_WEIGHT_MAP = { spf: 1, rq: 0.96, zq: 0.92, bqc: 0.8, bf: 0.66 }
 
 function round2(value) {
   return Math.round(value * 100) / 100
+}
+
+function computeHits(r) {
+  const a = { home: r.actual_home, away: r.actual_away, half_home: r.actual_half_home, half_away: r.actual_half_away }
+  return {
+    score: (r.home_score === a.home && r.away_score === a.away) ? 1 : 0,
+    result: (() => { const x = a.home > a.away ? '胜' : a.home < a.away ? '负' : '平'; return r.result_1x2 === x ? 1 : 0 })(),
+    total: (() => { const t = a.home + a.away >= 7 ? '7+' : String(a.home + a.away); return (r.total_goals === t || r.total_goals_2 === t) ? 1 : 0 })(),
+    half_full: (() => { const h = a.half_home > a.half_away ? '胜' : a.half_home < a.half_away ? '负' : '平'; const f = a.home > a.away ? '胜' : a.home < a.away ? '负' : '平'; return r.half_full_result === `${h}-${f}` ? 1 : 0 })(),
+    rq_result: (() => {
+      if (!r.handicap_result) return 0
+      const rq = r.handicap_result.replace('让球', '')
+      const x = a.home > a.away ? '胜' : a.home < a.away ? '负' : '平'
+      return rq === x ? 1 : 0
+    })(),
+  }
 }
 
 function getResultLabel(result) {
@@ -428,8 +444,8 @@ function settleBetSlip(betSlip, picks) {
 
 router.get('/', async (req, res) => {
   const db = getDb()
-  const todayStr = getBeijingDateStr()
-  console.log(`[Recommend] 当前北京时间日期: ${todayStr}`)
+  const todayStr = getRecommendDate() // 11点开售，11点前算昨天
+  console.log(`[Recommend] 当前推荐日期: ${todayStr}`)
 
   // 拉取体彩赔率
   let realOddsMap = {}
@@ -448,32 +464,67 @@ router.get('/', async (req, res) => {
     }
   } catch (e) { /* odds fetch failed */ }
 
-  const todayCount = db.prepare(`
-    SELECT COUNT(*) as c FROM matches
-    WHERE match_date = ? AND status != 'completed'
-      AND home_team_id IS NOT NULL AND home_team_id != ''
-  `).get(todayStr).c
+  // 计算停售截止时间（北京时间）：当前时间用于过滤已过停售时间的比赛
+  // 停售规则：开球前15分钟停止销售
+  const nowBeijing = getBeijingNow()
+  const nowHour = parseInt(nowBeijing.toISOString().substring(11, 13))
+  const nowMin = parseInt(nowBeijing.toISOString().substring(14, 16))
+  const nowTotalMin = nowHour * 60 + nowMin
+  const beijingToday = getBeijingDateStr()
 
-  // 找下一个有未完赛的日期（>= 今天）
+  // 计算某场比赛是否已过停售时间
+  const isMatchOnSale = (matchDate, matchTime) => {
+    if (matchDate > beijingToday) return true  // 未来的日期，全部可买
+    if (matchDate < beijingToday) return false  // 过去的日期，不可买
+    if (!matchTime) return true
+    const [h, m] = matchTime.split(':').map(Number)
+    const matchTotalMin = h * 60 + m
+    const cutoffTotalMin = matchTotalMin - 15
+    return nowTotalMin < cutoffTotalMin
+  }
+
+  // 查询当天所有未完成比赛（用于判断是否有可买的比赛）
+  const todayAllMatches = db.prepare(`
+    SELECT m.match_date, m.match_time FROM matches m
+    WHERE m.match_date = ? AND m.status != 'completed'
+      AND m.home_team_id IS NOT NULL AND m.home_team_id != ''
+  `).all(todayStr)
+
+  // 过滤出仍在销售中的比赛
+  const todayOnSaleMatches = todayAllMatches.filter(m => isMatchOnSale(m.match_date, m.match_time))
+
+  // 找下一个有可买比赛的日期（>= 今天）
   let startDate = todayStr
-  if (todayCount === 0) {
+  if (todayOnSaleMatches.length === 0) {
+    // 今天没有可买的比赛，找下一个有比赛的日期
     const nextMatch = db.prepare(`
-      SELECT match_date FROM matches
+      SELECT match_date, match_time FROM matches
       WHERE status != 'completed'
         AND home_team_id IS NOT NULL AND home_team_id != ''
         AND match_date >= ?
       ORDER BY match_date ASC
-      LIMIT 1
-    `).get(todayStr)
-    if (nextMatch) startDate = nextMatch.match_date
+      LIMIT 10
+    `).all(todayStr)
+    // 找第一个有可买比赛的日期
+    for (const m of nextMatch) {
+      if (isMatchOnSale(m.match_date, m.match_time)) {
+        startDate = m.match_date
+        break
+      }
+    }
+    // 如果都没找到，用第一个未来的日期
+    if (startDate === todayStr && nextMatch.length > 0) {
+      startDate = nextMatch[0].match_date
+    }
   }
 
-  // 默认只推荐1天，如果该天不足2场则扩展到2天
-  const day1Count = db.prepare(`
-    SELECT COUNT(*) as c FROM matches
-    WHERE match_date = ? AND status != 'completed'
-      AND home_team_id IS NOT NULL AND home_team_id != ''
-  `).get(startDate).c
+  // 默认只推荐1天，如果该天不足2场可买比赛则扩展到2天
+  const day1AllMatches = db.prepare(`
+    SELECT m.match_date, m.match_time FROM matches m
+    WHERE m.match_date = ? AND m.status != 'completed'
+      AND m.home_team_id IS NOT NULL AND m.home_team_id != ''
+  `).all(startDate)
+  const day1Count = day1AllMatches.filter(m => isMatchOnSale(m.match_date, m.match_time)).length
 
   let endDateStr = startDate
   if (day1Count < 2) {
@@ -503,6 +554,9 @@ router.get('/', async (req, res) => {
     ORDER BY m.match_date ASC, m.match_time ASC
   `).all(startDate, endDateStr)
 
+  // 过滤掉已过停售时间的比赛（开球前15分钟）
+  const filteredUpcoming = upcoming.filter(r => isMatchOnSale(r.match_date, r.match_time))
+
   // 已完成比赛
   const past = db.prepare(`
     SELECT p.id as pred_id, p.match_id, p.home_score, p.away_score,
@@ -524,7 +578,31 @@ router.get('/', async (req, res) => {
     ORDER BY m.match_date DESC, m.match_number ASC
   `).all()
 
+  // 过期但未完成的比赛（日期已过但状态仍为scheduled/live）
+  const orphaned = db.prepare(`
+    SELECT p.id as pred_id, p.match_id, p.home_score, p.away_score,
+      p.half_home_score, p.half_away_score, p.result_1x2, p.total_goals, p.total_goals_2, p.handicap_result,
+      p.half_full_result, p.confidence, p.confidence_detail,
+      m.match_date, m.match_time, m.round, m.group_name, m.match_number, m.status,
+      m.home_team_id, m.away_team_id,
+      m.home_score as actual_home, m.away_score as actual_away,
+      m.half_home_score as actual_half_home, m.half_away_score as actual_half_away,
+      ht.name_cn as home_name_cn, ht.flag as home_flag, ht.ranking as home_ranking,
+      at.name_cn as away_name_cn, at.flag as away_flag, at.ranking as away_ranking
+    FROM matches m
+    LEFT JOIN predictions p ON p.match_id = m.id AND p.id = (
+      SELECT MAX(id) FROM predictions WHERE match_id = m.id
+    )
+    LEFT JOIN teams ht ON m.home_team_id = ht.id
+    LEFT JOIN teams at ON m.away_team_id = at.id
+    WHERE m.status != 'completed' AND m.match_date < ?
+      AND m.home_team_id IS NOT NULL AND m.home_team_id != ''
+    ORDER BY m.match_date DESC, m.match_number ASC
+  `).all(startDate)
+
   function formatPick(r) {
+    const isCompleted = r.status === 'completed'
+    const isPending = !isCompleted && r.match_date < startDate
     return {
       match_id: r.match_id,
       date: r.match_date, time: r.match_time, round: r.round, group_name: r.group_name, match_number: r.match_number,
@@ -536,32 +614,17 @@ router.get('/', async (req, res) => {
         half_full_result: r.half_full_result,
         confidence: r.confidence, confidence_detail: r.confidence_detail,
       },
-      completed: r.status === 'completed',
-      actual: r.status === 'completed' ? {
+      completed: isCompleted,
+      pending: isPending,
+      actual: isCompleted ? {
         home: r.actual_home, away: r.actual_away,
         half_home: r.actual_half_home, half_away: r.actual_half_away,
       } : null,
-      hits: r.status === 'completed' ? computeHits(r) : null,
+      hits: isCompleted ? computeHits(r) : null,
     }
   }
 
-  function computeHits(r) {
-    const a = { home: r.actual_home, away: r.actual_away, half_home: r.actual_half_home, half_away: r.actual_half_away }
-    return {
-      score: (r.home_score === a.home && r.away_score === a.away) ? 1 : 0,
-      result: (() => { const x = a.home > a.away ? '胜' : a.home < a.away ? '负' : '平'; return r.result_1x2 === x ? 1 : 0 })(),
-      total: (() => { const t = a.home + a.away >= 7 ? '7+' : String(a.home + a.away); return (r.total_goals === t || r.total_goals_2 === t) ? 1 : 0 })(),
-      half_full: (() => { const h = a.half_home > a.half_away ? '胜' : a.half_home < a.half_away ? '负' : '平'; const f = a.home > a.away ? '胜' : a.home < a.away ? '负' : '平'; return r.half_full_result === `${h}-${f}` ? 1 : 0 })(),
-      rq_result: (() => {
-        if (!r.handicap_result) return 0
-        const rq = r.handicap_result.replace('让球', '')
-        const x = a.home > a.away ? '胜' : a.home < a.away ? '负' : '平'
-        return rq === x ? 1 : 0
-      })(),
-    }
-  }
-
-  const activePicks = upcoming.map(formatPick)
+  const activePicks = filteredUpcoming.map(formatPick)
 
   // 搏冷分析
   const upsetAnalysis = activePicks.map(pick => ({
@@ -584,7 +647,13 @@ router.get('/', async (req, res) => {
   for (const r of past) {
     const date = r.match_date || 'unknown'
     if (!pastByDate[date]) pastByDate[date] = []
-    if (pastByDate[date].length < 4) pastByDate[date].push(r)
+    if (pastByDate[date].length < 16) pastByDate[date].push(r)
+  }
+  // 合并过期未完成的比赛到历史记录中
+  for (const r of orphaned) {
+    const date = r.match_date || 'unknown'
+    if (!pastByDate[date]) pastByDate[date] = []
+    if (pastByDate[date].length < 16) pastByDate[date].push(r)
   }
   const pastDays = Object.entries(pastByDate).map(([date, rows]) => {
     const dayPack = buildRecommendationPackage(rows.map(formatPick), realOddsMap)
@@ -607,6 +676,199 @@ router.get('/', async (req, res) => {
     upsetAnalysis,
     past: pastDays,
   })
+
+  // 保存今日推荐快照（每次更新覆盖，确保包含全部比赛）
+  // 注意：快照必须包含当天所有比赛（已完成+未完成），否则历史记录会缺场
+  try {
+    if (activePack.picks.length > 0) {
+      // 查询当天所有比赛（包括已完成的），确保快照完整
+      const allDayMatches = db.prepare(`
+        SELECT p.id as pred_id, p.match_id, p.home_score, p.away_score,
+          p.half_home_score, p.half_away_score, p.result_1x2, p.total_goals, p.total_goals_2, p.handicap_result,
+          p.half_full_result, p.confidence, p.confidence_detail,
+          m.match_date, m.match_time, m.round, m.group_name, m.match_number, m.status,
+          m.home_team_id, m.away_team_id,
+          m.home_score as actual_home, m.away_score as actual_away,
+          m.half_home_score as actual_half_home, m.half_away_score as actual_half_away,
+          ht.name_cn as home_name_cn, ht.flag as home_flag, ht.ranking as home_ranking,
+          at.name_cn as away_name_cn, at.flag as away_flag, at.ranking as away_ranking
+        FROM matches m
+        LEFT JOIN predictions p ON p.match_id = m.id AND p.id = (
+          SELECT MAX(id) FROM predictions WHERE match_id = m.id
+        )
+        LEFT JOIN teams ht ON m.home_team_id = ht.id
+        LEFT JOIN teams at ON m.away_team_id = at.id
+        WHERE m.match_date = ?
+          AND m.home_team_id IS NOT NULL AND m.home_team_id != ''
+        ORDER BY m.match_number ASC
+      `).all(startDate)
+      const allDayPicks = allDayMatches.map(formatPick)
+      const allDayPack = buildRecommendationPackage(allDayPicks, realOddsMap)
+      const allDaySlip = settleBetSlip(allDayPack.betSlip, allDayPack.picks)
+      const allDayProfit = allDaySlip.status === 'won'
+        ? round2(allDaySlip.payout - allDaySlip.amount)
+        : allDaySlip.status === 'lost'
+          ? round2(-allDaySlip.amount)
+          : 0
+
+      // 删除旧快照并重新插入（确保数据完整）
+      db.prepare('DELETE FROM recommendation_snapshots WHERE snapshot_date = ?').run(startDate)
+      db.prepare(
+        'INSERT INTO recommendation_snapshots (snapshot_date, active_data) VALUES (?, ?)'
+      ).run(startDate, JSON.stringify({
+        picks: allDayPack.picks,
+        betSlip: allDaySlip,
+        dailyProfit: allDayProfit,
+      }))
+      console.log(`[Recommend] 已保存 ${startDate} 的推荐快照 (${allDayPack.picks.length} 场)`)
+    }
+  } catch (e) {
+    console.error('[Recommend] 保存快照失败:', e.message)
+  }
+})
+
+// 获取历史推荐快照
+router.get('/snapshots', (req, res) => {
+  const db = getDb()
+  const now = getBeijingDateStr()
+  const nowBeijing = getBeijingNow()
+  const hour = parseInt(nowBeijing.toISOString().substring(11, 13))
+
+  // 11点后，今天也属于历史；11点前，今天仍是推荐日
+  const cutoffDate = new Date(now + 'T12:00:00')
+  if (hour < 11) cutoffDate.setDate(cutoffDate.getDate() - 1)
+  const cutoffStr = cutoffDate.toISOString().split('T')[0]
+
+  try {
+    // 获取已有快照
+    const snapshots = db.prepare(`
+      SELECT snapshot_date, created_at, active_data
+      FROM recommendation_snapshots
+      WHERE snapshot_date <= ?
+      ORDER BY snapshot_date DESC
+      LIMIT 30
+    `).all(cutoffStr)
+
+    const snapshotMap = {}
+    for (const s of snapshots) {
+      const data = JSON.parse(s.active_data)
+      snapshotMap[s.snapshot_date] = {
+        date: s.snapshot_date,
+        createdAt: s.created_at,
+        picks: data.picks,
+        betSlip: data.betSlip,
+        dailyProfit: data.dailyProfit,
+      }
+    }
+
+    // 获取所有过去日期有比赛的日期列表
+    const allDates = db.prepare(`
+      SELECT DISTINCT match_date FROM matches
+      WHERE match_date <= ? AND match_date IS NOT NULL
+        AND home_team_id IS NOT NULL AND home_team_id != ''
+      ORDER BY match_date DESC
+    `).all(cutoffStr).map(r => r.match_date)
+
+    // 检查每个快照是否完整（与DB中该日比赛数对比）
+    for (const date of allDates) {
+      if (snapshotMap[date]) {
+        const matchCount = db.prepare(`
+          SELECT COUNT(*) as c FROM matches
+          WHERE match_date = ? AND home_team_id IS NOT NULL AND home_team_id != ''
+        `).get(date).c
+        if (snapshotMap[date].picks.length < matchCount) {
+          delete snapshotMap[date]  // 快照不完整，需要重新生成
+        }
+      }
+    }
+
+    // 对缺失或不完整的日期，动态生成
+    const missingDates = allDates.filter(d => !snapshotMap[d])
+
+    if (missingDates.length > 0) {
+      const past = db.prepare(`
+        SELECT p.id as pred_id, p.match_id, p.home_score, p.away_score,
+          p.half_home_score, p.half_away_score, p.result_1x2, p.total_goals, p.total_goals_2, p.handicap_result,
+          p.half_full_result, p.confidence, p.confidence_detail,
+          m.match_date, m.match_time, m.round, m.group_name, m.match_number, m.status,
+          m.home_team_id, m.away_team_id,
+          m.home_score as actual_home, m.away_score as actual_away,
+          m.half_home_score as actual_half_home, m.half_away_score as actual_half_away,
+          ht.name_cn as home_name_cn, ht.flag as home_flag, ht.ranking as home_ranking,
+          at.name_cn as away_name_cn, at.flag as away_flag, at.ranking as away_ranking
+        FROM matches m
+        LEFT JOIN predictions p ON p.match_id = m.id AND p.id = (
+          SELECT MAX(id) FROM predictions WHERE match_id = m.id
+        )
+        LEFT JOIN teams ht ON m.home_team_id = ht.id
+        LEFT JOIN teams at ON m.away_team_id = at.id
+        WHERE m.match_date IN (${missingDates.map(() => '?').join(',')})
+          AND m.home_team_id IS NOT NULL AND m.home_team_id != ''
+        ORDER BY m.match_date DESC, m.match_number ASC
+      `).all(...missingDates)
+
+      function formatPickFallback(r) {
+        const isCompleted = r.status === 'completed'
+        const isPending = !isCompleted && r.match_date < now
+        return {
+          match_id: r.match_id,
+          date: r.match_date, time: r.match_time, round: r.round, group_name: r.group_name, match_number: r.match_number,
+          home: { id: r.home_team_id, name_cn: r.home_name_cn, flag: r.home_flag, ranking: r.home_ranking },
+          away: { id: r.away_team_id, name_cn: r.away_name_cn, flag: r.away_flag, ranking: r.away_ranking },
+          prediction: {
+            home_score: r.home_score, away_score: r.away_score,
+            result_1x2: r.result_1x2, total_goals: r.total_goals, total_goals_2: r.total_goals_2, handicap_result: r.handicap_result,
+            half_full_result: r.half_full_result,
+            confidence: r.confidence, confidence_detail: r.confidence_detail,
+          },
+          completed: isCompleted,
+          pending: isPending,
+          actual: isCompleted ? {
+            home: r.actual_home, away: r.actual_away,
+            half_home: r.actual_half_home, half_away: r.actual_half_away,
+          } : null,
+          hits: isCompleted ? computeHits(r) : null,
+        }
+      }
+
+      const missingByDate = {}
+      for (const r of past) {
+        const date = r.match_date || 'unknown'
+        if (!missingByDate[date]) missingByDate[date] = []
+        if (missingByDate[date].length < 16) missingByDate[date].push(r)
+      }
+
+      let realOddsMap = {}
+      try {
+        const { getOddsForMatch } = require('../odds')
+        const allTeams = db.prepare('SELECT id, name, name_cn FROM teams').all()
+        const teamNames = {}
+        for (const t of allTeams) teamNames[t.id] = t.name_cn || t.name
+        const allMatches = db.prepare('SELECT id, home_team_id, away_team_id FROM matches').all()
+        for (const m of allMatches) {
+          const h = teamNames[m.home_team_id]; const a = teamNames[m.away_team_id]
+          if (h && a) { const o = getOddsForMatch(h, a); if (o) realOddsMap[m.id] = o }
+        }
+      } catch (e) {}
+
+      for (const [date, rows] of Object.entries(missingByDate)) {
+        const dayPack = buildRecommendationPackage(rows.map(formatPickFallback), realOddsMap)
+        const slip = settleBetSlip(dayPack.betSlip, dayPack.picks)
+        const dailyProfit = slip.status === 'won'
+          ? round2(slip.payout - slip.amount)
+          : slip.status === 'lost'
+            ? round2(-slip.amount)
+            : 0
+        snapshotMap[date] = { date, picks: dayPack.picks, betSlip: slip, dailyProfit }
+      }
+    }
+
+    const result = allDates.filter(d => snapshotMap[d]).map(d => snapshotMap[d])
+    res.json({ snapshots: result })
+  } catch (e) {
+    console.error('[Recommend] 获取历史快照失败:', e.message)
+    res.json({ snapshots: [] })
+  }
 })
 
 module.exports = router

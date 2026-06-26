@@ -1,6 +1,6 @@
 {
   "name": "world-cup-predictor",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "2026 World Cup Predictor",
   "main": "server/index.js",
   "scripts": {

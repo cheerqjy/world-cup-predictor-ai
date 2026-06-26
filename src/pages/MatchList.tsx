@@ -125,7 +125,7 @@ export function MatchList() {
           {m.group_name && <span className="match-group-badge">第{m.group_name}组</span>}
           <span className="match-number">#{m.match_number}</span>
           <span className="match-date">
-            {activeTab === 'round' ? `${m.match_date} ` : ''}
+            {m.match_date ? `${m.match_date.slice(5,7)}月${m.match_date.slice(8,10)}日 ` : ''}
             {m.match_time ? m.match_time.slice(0,5) : ''}
           </span>
           {expired && <span className="match-status-pending">待更新赛果</span>}

@@ -6,6 +6,31 @@ const { getBeijingDateStr, utcToBeijingDate, utcToBeijingTime, isFutureDate } = 
 const WC_API_URL = 'https://worldcup26.ir/get/games'
 const FETCH_TIMEOUT = 15000
 
+// 体育场ID -> 场地本地时间转北京时间的小时偏移量
+// 2026世界杯场馆时区:
+//   墨西哥 (CST UTC-6): +14小时
+//   美国中部 (CDT UTC-5): +13小时
+//   美国东部/加拿大多伦多 (EDT UTC-4): +12小时
+//   美国西部/加拿大温哥华 (PDT UTC-7): +15小时
+const STADIUM_TO_BEIJING_OFFSET = {
+  '1': 14,   // Mexico City (CST)
+  '2': 14,   // Guadalajara (CST)
+  '3': 14,   // Monterrey (CST)
+  '4': 13,   // Dallas (CDT)
+  '5': 13,   // Houston (CDT)
+  '6': 13,   // Kansas City (CDT)
+  '7': 12,   // Atlanta (EDT)
+  '8': 12,   // Miami (EDT)
+  '9': 12,   // Boston (EDT)
+  '10': 12,  // Philadelphia (EDT)
+  '11': 12,  // New York/New Jersey (EDT)
+  '12': 12,  // Toronto (EDT)
+  '13': 15,  // Vancouver (PDT)
+  '14': 15,  // Seattle (PDT)
+  '15': 15,  // San Francisco (PDT)
+  '16': 15,  // Los Angeles (PDT)
+}
+
 // 队名映射 (英文 -> 数据库ID)
 const TEAM_NAME_MAP = {
   'Mexico': 'mex', 'South Africa': 'rsa', 'South Korea': 'kor', 'Korea Republic': 'kor',
@@ -50,7 +75,7 @@ function fetchJson(url) {
 }
 
 // 将API日期格式 "06/11/2026 13:00" 转为北京时间
-function parseApiDate(localDateStr) {
+function parseApiDate(localDateStr, stadiumId) {
   if (!localDateStr) return { date: '', time: '' }
   
   const parts = localDateStr.split(' ')
@@ -61,9 +86,28 @@ function parseApiDate(localDateStr) {
   
   // 转换日期格式: "06/11/2026" -> "2026-06-11"
   const [month, day, year] = datePart.split('/')
-  const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  const venueDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
   
-  return { date, time: timePart }
+  // 获取该体育场到北京时间的偏移量
+  const offsetHours = STADIUM_TO_BEIJING_OFFSET[String(stadiumId)] || 13 // 默认CDT
+  
+  // 解析场地本地时间
+  const [hours, minutes] = timePart.split(':').map(Number)
+  
+  // 计算北京时间
+  let beijingHours = hours + offsetHours
+  let beijingDate = venueDate
+  if (beijingHours >= 24) {
+    beijingHours -= 24
+    // 日期加一天
+    const d = new Date(venueDate + 'T12:00:00')
+    d.setDate(d.getDate() + 1)
+    beijingDate = d.toISOString().split('T')[0]
+  }
+  
+  const beijingTime = String(beijingHours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0')
+  
+  return { date: beijingDate, time: beijingTime }
 }
 
 async function fetchAndUpdate() {
@@ -95,7 +139,7 @@ async function fetchAndUpdate() {
         continue
       }
 
-      const { date: matchDate, time: matchTime } = parseApiDate(game.local_date)
+      const { date: matchDate, time: matchTime } = parseApiDate(game.local_date, game.stadium_id)
       const isFinished = game.finished === 'TRUE'
       const homeScore = isFinished ? parseInt(game.home_score) : null
       const awayScore = isFinished ? parseInt(game.away_score) : null

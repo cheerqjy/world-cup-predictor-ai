@@ -143,6 +143,13 @@ async function initDb() {
         provider TEXT NOT NULL DEFAULT 'openai',
         api_key TEXT, model TEXT DEFAULT 'gpt-4o', base_url TEXT
       );
+      CREATE TABLE IF NOT EXISTS recommendation_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_date TEXT NOT NULL UNIQUE,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        active_data TEXT NOT NULL,
+        past_data TEXT
+      );
     `)
     // Migration for existing databases
     try { db.exec(`ALTER TABLE predictions ADD COLUMN total_goals_2 TEXT`) } catch (e) {}

@@ -193,8 +193,10 @@ function renderSlip(slip: BetSlip, dailyProfit: number, showDate?: string) {
 export function Recommend() {
   const [active, setActive] = useState<DayGroup | null>(null)
   const [past, setPast] = useState<DayGroup[]>([])
+  const [snapshots, setSnapshots] = useState<DayGroup[]>([])
   const [upsetAnalysis, setUpsetAnalysis] = useState<UpsetAnalysis[]>([])
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'future' | 'history'>('future')
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set())
 
   const load = useCallback(async () => {
@@ -208,10 +210,18 @@ export function Recommend() {
     setLoading(false)
   }, [])
 
+  const loadSnapshots = useCallback(async () => {
+    try {
+      const data = await api.recommendations.snapshots()
+      setSnapshots(data.snapshots as DayGroup[])
+    } catch { setSnapshots([]) }
+  }, [])
+
   useEffect(() => { load() }, [])
+  useEffect(() => { if (activeTab === 'history') loadSnapshots() }, [activeTab])
 
   function fmtDate(dateStr: string) {
-    const d = new Date(dateStr)
+    const d = new Date(dateStr + 'T00:00:00')
     const week = ['日','一','二','三','四','五','六']
     return `${d.getMonth()+1}月${d.getDate()}日 周${week[d.getDay()]}`
   }
@@ -223,131 +233,153 @@ export function Recommend() {
         <span className="page-sub">参考体彩玩法规则生成模拟投注单</span>
       </div>
 
+      {/* Tab切换 */}
+      <div className="round-tabs">
+        <button 
+          className={`round-tab ${activeTab === 'future' ? 'active' : ''}`}
+          onClick={() => setActiveTab('future')}
+        >
+          ⚽ 未来推荐
+        </button>
+        <button 
+          className={`round-tab ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveTab('history')}
+        >
+          📋 历史记录
+        </button>
+      </div>
+
       {loading && <div className="loading">加载中...</div>}
-      {!loading && !active && <div className="empty-state">暂无推荐数据</div>}
 
-      {active && active.betSlip && (
-        <div className="rec-day active-day">
-          <div className="rec-day-header rec-day-header-strong">
-            <div>
-              <span className="rec-date">{fmtDate(active.date)}</span>
-              <span className="rec-budget">混合过关 · {active.betSlip.matches.length}场</span>
-            </div>
-            <span className="rec-summary-odds">组合赔率 @{active.betSlip.combinedOdds.toFixed(2)}</span>
-          </div>
+      {/* 未来推荐Tab */}
+      {activeTab === 'future' && !loading && (
+        <>
+          {!active && <div className="empty-state">暂无推荐数据</div>}
 
-          {/* 投注单 */}
-          {renderSlip(active.betSlip, active.dailyProfit)}
-
-          {/* 搏冷分析 */}
-          {upsetAnalysis.length > 0 && (
-            <div className="upset-section">
-              <h3 className="upset-title">🎯 搏冷分析</h3>
-              {upsetAnalysis.map(ua => (
-                <div key={ua.matchId} className={`upset-card ${ua.isUpset ? 'upset-hot' : 'upset-normal'}`}>
-                  <div className="upset-match">
-                    <span>{ua.home.flag}{ua.home.name_cn} vs {ua.away.flag}{ua.away.name_cn}</span>
-                    <span className={`upset-badge ${ua.isUpset ? 'upset-badge-hot' : ''}`}>
-                      {ua.isUpset ? ua.type : '正常'}
-                    </span>
-                  </div>
-                  <div className="upset-detail">
-                    <span>冷门概率: {Math.round(ua.probability * 100)}%</span>
-                    <span>模型置信: {Math.round(ua.confidence * 100)}%</span>
-                  </div>
+          {active && active.betSlip && (
+            <div className="rec-day active-day">
+              <div className="rec-day-header rec-day-header-strong">
+                <div>
+                  <span className="rec-date">{fmtDate(active.date)}</span>
+                  <span className="rec-budget">混合过关 · {active.betSlip.matches.length}场</span>
                 </div>
-              ))}
-            </div>
-          )}
+                <span className="rec-summary-odds">组合赔率 @{active.betSlip.combinedOdds.toFixed(2)}</span>
+              </div>
 
-          {/* 比赛详情 */}
-          <div className="rec-picks">
-            {active.picks.map(p => {
-              const isExpanded = expandedCards.has(p.match_id)
-              return (
-              <div key={p.match_id} className={`rec-card rec-market-card ${p.completed ? 'rec-done' : ''} ${p.pending ? 'rec-pending' : ''}`}>
-                <div className="rec-card-top" style={{cursor: 'pointer'}} onClick={() => {
-                  setExpandedCards(prev => {
-                    const next = new Set(prev)
-                    if (next.has(p.match_id)) next.delete(p.match_id)
-                    else next.add(p.match_id)
-                    return next
-                  })}}>
-                  <div className="rec-teams">
-                    <span className="rec-team">{p.home.flag} {p.home.name_cn}</span>
-                    <span className="rec-vs">vs</span>
-                    <span className="rec-team">{p.away.flag} {p.away.name_cn}</span>
-                    <span className="rec-round">{p.round}</span>
-                  </div>
-                  <div className="rec-card-meta">
-                    <span>{p.time ? p.time.slice(0,5) : ''} #{String(p.match_number).padStart(3,'0')}</span>
-                    {p.selectedBet && (
-                      <span className="rec-selected-pill">
-                        推荐 {p.selectedBet.marketTitle} · {p.selectedBet.betName}
-                      </span>
-                    )}
-                    <span className="rec-expand-icon">{isExpanded ? '▾' : '▸'}</span>
-                  </div>
-                </div>
+              {/* 投注单 */}
+              {renderSlip(active.betSlip, active.dailyProfit)}
 
-                {isExpanded && (
-                <div className="rec-market-list">
-                  {p.markets?.map(market => (
-                    <div key={`${p.match_id}-${market.type}`} className="rec-market">
-                      <div className="rec-market-head">
-                        <div className="rec-market-title">
-                          <span>{market.title}</span>
-                          {typeof market.handicap === 'number' && (
-                            <span className="rec-market-handicap">({formatHandicap(market.handicap)})</span>
-                          )}
-                        </div>
-                        <div className="rec-market-tags">
-                          {market.tags.map(tag => <span key={tag} className="rec-market-tag">{tag}</span>)}
-                        </div>
+              {/* 搏冷分析 */}
+              {upsetAnalysis.length > 0 && (
+                <div className="upset-section">
+                  <h3 className="upset-title">🎯 搏冷分析</h3>
+                  {upsetAnalysis.map(ua => (
+                    <div key={ua.matchId} className={`upset-card ${ua.isUpset ? 'upset-hot' : 'upset-normal'}`}>
+                      <div className="upset-match">
+                        <span>{ua.home.flag}{ua.home.name_cn} vs {ua.away.flag}{ua.away.name_cn}</span>
+                        <span className={`upset-badge ${ua.isUpset ? 'upset-badge-hot' : ''}`}>
+                          {ua.isUpset ? ua.type : '正常'}
+                        </span>
                       </div>
-
-                      <div className={getOptionGridClass(market.type)}>
-                        {market.options.map(option => (
-                          <div
-                            key={option.key}
-                            className={`rec-option ${option.selected ? 'selected' : ''} ${option.secondary ? 'secondary' : ''}`}
-                          >
-                            <span className="rec-option-label">{option.label}</span>
-                            <span className="rec-option-odds">{option.odds.toFixed(2)}</span>
-                          </div>
-                        ))}
+                      <div className="upset-detail">
+                        <span>冷门概率: {Math.round(ua.probability * 100)}%</span>
+                        <span>模型置信: {Math.round(ua.confidence * 100)}%</span>
                       </div>
-
-                      {p.actual && (
-                        <div className="rec-market-result">
-                          赛果: {getMarketResultLabel(p, market)}
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
-                )}
+              )}
 
-                <div className="rec-footer rec-footer-rich">
-                  <span className="rec-conf">模型置信度 {Math.round(p.prediction.confidence * 100)}%</span>
-                  <span className="rec-pred-brief">比分 {p.prediction.home_score ?? '-'}:{p.prediction.away_score ?? '-'} · 胜平负 {getResultLabel(p.prediction.result_1x2)}</span>
-                  {p.prediction.handicap_result && <span className="rec-pred-brief">{p.prediction.handicap_result}</span>}
-                  {p.prediction.total_goals_2 && <span className="rec-secondary-note">总进球次选 {p.prediction.total_goals_2}球</span>}
-                  {p.pending && <span className="rec-pending-note">⏳ 待更新赛果</span>}
-                  {p.actual && <span className="rec-actual-note">实际 {p.actual.home}:{p.actual.away} / {formatHalfFullLabel(getHalfFullResultLabel(p.actual))}</span>}
-                </div>
+              {/* 比赛详情 */}
+              <div className="rec-picks">
+                {active.picks.map(p => {
+                  const isExpanded = expandedCards.has(p.match_id)
+                  return (
+                  <div key={p.match_id} className={`rec-card rec-market-card ${p.completed ? 'rec-done' : ''} ${p.pending ? 'rec-pending' : ''}`}>
+                    <div className="rec-card-top" style={{cursor: 'pointer'}} onClick={() => {
+                      setExpandedCards(prev => {
+                        const next = new Set(prev)
+                        if (next.has(p.match_id)) next.delete(p.match_id)
+                        else next.add(p.match_id)
+                        return next
+                      })}}>
+                      <div className="rec-teams">
+                        <span className="rec-team">{p.home.flag} {p.home.name_cn}</span>
+                        <span className="rec-vs">vs</span>
+                        <span className="rec-team">{p.away.flag} {p.away.name_cn}</span>
+                        <span className="rec-round">{p.round}</span>
+                      </div>
+                      <div className="rec-card-meta">
+                        <span>{p.date ? `${p.date.slice(5,7)}月${p.date.slice(8,10)}日 ` : ''}{p.time ? p.time.slice(0,5) : ''} #{String(p.match_number).padStart(3,'0')}</span>
+                        {p.selectedBet && (
+                          <span className="rec-selected-pill">
+                            推荐 {p.selectedBet.marketTitle} · {p.selectedBet.betName}
+                          </span>
+                        )}
+                        <span className="rec-expand-icon">{isExpanded ? '▾' : '▸'}</span>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                    <div className="rec-market-list">
+                      {p.markets?.map(market => (
+                        <div key={`${p.match_id}-${market.type}`} className="rec-market">
+                          <div className="rec-market-head">
+                            <div className="rec-market-title">
+                              <span>{market.title}</span>
+                              {typeof market.handicap === 'number' && (
+                                <span className="rec-market-handicap">({formatHandicap(market.handicap)})</span>
+                              )}
+                            </div>
+                            <div className="rec-market-tags">
+                              {market.tags.map(tag => <span key={tag} className="rec-market-tag">{tag}</span>)}
+                            </div>
+                          </div>
+
+                          <div className={getOptionGridClass(market.type)}>
+                            {market.options.map(option => (
+                              <div
+                                key={option.key}
+                                className={`rec-option ${option.selected ? 'selected' : ''} ${option.secondary ? 'secondary' : ''}`}
+                              >
+                                <span className="rec-option-label">{option.label}</span>
+                                <span className="rec-option-odds">{option.odds.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {p.actual && (
+                            <div className="rec-market-result">
+                              赛果: {getMarketResultLabel(p, market)}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    )}
+
+                    <div className="rec-footer rec-footer-rich">
+                      <span className="rec-conf">模型置信度 {Math.round(p.prediction.confidence * 100)}%</span>
+                      <span className="rec-pred-brief">比分 {p.prediction.home_score ?? '-'}:{p.prediction.away_score ?? '-'} · 胜平负 {getResultLabel(p.prediction.result_1x2)}</span>
+                      {p.prediction.handicap_result && <span className="rec-pred-brief">{p.prediction.handicap_result}</span>}
+                      {p.prediction.total_goals_2 && <span className="rec-secondary-note">总进球次选 {p.prediction.total_goals_2}球</span>}
+                      {p.pending && <span className="rec-pending-note">⏳ 待更新赛果</span>}
+                      {p.actual && <span className="rec-actual-note">实际 {p.actual.home}:{p.actual.away} / {formatHalfFullLabel(getHalfFullResultLabel(p.actual))}</span>}
+                    </div>
+                  </div>
+                  )
+                })}
               </div>
-              )
-            })}
-          </div>
-        </div>
+            </div>
+          )}
+        </>
       )}
 
-      {/* 历史记录 */}
-      {past.length > 0 && (
+      {/* 历史记录Tab */}
+      {activeTab === 'history' && !loading && (
         <div className="rec-past-section">
-          <h3 className="rec-past-title">历史记录</h3>
-          {past.map(day => (
+          {snapshots.length === 0 && <div className="empty-state">暂无历史记录</div>}
+          {snapshots.map(day => (
             <div key={day.date} className="rec-day">
               <div className="rec-day-header">
                 <span className="rec-date">{fmtDate(day.date)}</span>
