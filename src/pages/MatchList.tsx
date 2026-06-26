@@ -41,7 +41,7 @@ export function MatchList() {
   const [predictions, setPredictions] = useState<Record<number, Prediction>>({})
   const [activeRound, setActiveRound] = useState('小组赛')
   const [activeGroup, setActiveGroup] = useState('')
-  const [activeTab, setActiveTab] = useState<'round' | 'date'>('round')
+  const [activeTab, setActiveTab] = useState<'round' | 'date'>('date')
   const [loading, setLoading] = useState(true)
   const [rounds, setRounds] = useState<{ round: string; count: number }[]>([])
   const [now, setNow] = useState(new Date())
@@ -84,6 +84,8 @@ export function MatchList() {
 
   const loadByDate = useCallback(async () => {
     setActiveTab('date')
+    setActiveRound('')
+    setActiveGroup('')
     setLoading(true)
     try {
       const data = await api.matches.list({ _: Date.now().toString() })
@@ -92,7 +94,7 @@ export function MatchList() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadAll(); loadMatches('小组赛') }, [])
+  useEffect(() => { loadAll(); loadByDate() }, [])
 
   useEffect(() => {
     const timer = setInterval(() => {
