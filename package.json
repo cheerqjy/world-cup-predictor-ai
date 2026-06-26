@@ -26,11 +26,9 @@
     },
     "files": [
       "dist/**/*",
-      "server/**/*",
       "electron/**/*",
-      "data/**/*",
-      "node_modules/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules"
     ],
     "extraResources": [],
     "win": {
