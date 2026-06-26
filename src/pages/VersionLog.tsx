@@ -68,23 +68,16 @@ export function VersionLog() {
       {versionMsg && (
         <div className="version-check-result">
           {versionMsg}
-          {versionInfo && isNewer(versionInfo.version, LOCAL_VERSION) && versionInfo.downloads?.length > 0 && (
-            <div className="version-download-list">
-              {versionInfo.downloads.map((f: any, i: number) => (
-                <a
-                  key={i}
-                  href={f.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="version-download-btn"
-                >
-                  ⬇ {f.label || f.name}
-                </a>
-              ))}
-            </div>
-          )}
         </div>
       )}
+
+      <div className="version-download-section">
+        <div className="version-download-hint">Windows 最新版下载：</div>
+        <div className="version-download-list">
+          <a href="https://pan.baidu.com/s/1v9bN_AIZAvqUWX9yLFWPmw?pwd=avch" target="_blank" rel="noopener noreferrer" className="version-download-btn">⬇ 百度网盘</a>
+          <a href="https://pan.quark.cn/s/bf9186d84ca7?pwd=ia7U" target="_blank" rel="noopener noreferrer" className="version-download-btn">⬇ 夸克网盘</a>
+        </div>
+      </div>
 
       <div className="version-timeline">
         {versions.map((v, i) => (

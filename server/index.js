@@ -39,41 +39,19 @@ async function main() {
   }))
 
   app.get('/api/version', (req, res) => {
-    // 直接下载（暂注释）
-    // const downloadsDir = path.join(__dirname, '..', 'downloads')
-    // const downloads = []
-    // const fs2 = require('fs')
-    // if (fs2.existsSync(downloadsDir)) {
-    //   const files = fs2.readdirSync(downloadsDir)
-    //   for (const file of files) {
-    //     if (file.endsWith('.exe')) {
-    //       downloads.push({
-    //         name: file,
-    //         url: `/downloads/${file}`,
-    //         size: fs2.statSync(path.join(downloadsDir, file)).size
-    //       })
-    //     }
-    //   }
-    // }
-
-    // 网盘下载
-    const downloads = [
-      {
-        name: 'WorldCupPredictor-1.5.1-Portable.exe',
-        url: 'https://pan.baidu.com/s/1v9bN_AIZAvqUWX9yLFWPmw?pwd=avch',
-        label: '百度网盘',
-      },
-      {
-        name: 'WorldCupPredictor-1.5.1-Portable.exe',
-        url: 'https://pan.quark.cn/s/bf9186d84ca7?pwd=ia7U',
-        label: '夸克网盘',
-      },
-    ]
-
     res.json({
       version: SERVER_VERSION,
-      buildTime: pkg.buildTime || null,
-      downloads
+      buildTime: null,
+      downloads: [
+        {
+          url: 'https://pan.baidu.com/s/1v9bN_AIZAvqUWX9yLFWPmw?pwd=avch',
+          label: '百度网盘',
+        },
+        {
+          url: 'https://pan.quark.cn/s/bf9186d84ca7?pwd=ia7U',
+          label: '夸克网盘',
+        },
+      ]
     })
   })
 

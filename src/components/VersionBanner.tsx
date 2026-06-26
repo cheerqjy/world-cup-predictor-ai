@@ -69,7 +69,7 @@ export function VersionBanner() {
                 textAlign: 'center',
               }}
             >
-              ⬇ {f.label || f.name}
+              ⬇ {f.label}
             </a>
           ))}
         </div>
