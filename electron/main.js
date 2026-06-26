@@ -30,7 +30,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: '2026世界杯预测',
-    icon: path.join(__dirname, '..', 'public', 'favicon.svg'),
+    icon: path.join(__dirname, '..', 'public', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
