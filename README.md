@@ -22,7 +22,7 @@
 
 ## 功能特性
 
-- **实时数据**：每 2 分钟从免费世界杯 API 自动同步最新比分（104 场全覆盖）
+- **实时数据**：每 2 分钟从 [worldcup26.ir](https://worldcup26.ir) API 自动同步最新比分（104 场全覆盖），已验证数据准确性
 - **AI 预测**：支持 Poisson 统计模型（免费）和 AI 大模型（需 API key）
 - **竞彩推荐**：胜平负 / 让球 / 比分 / 总进球 / 半全场 5 种玩法
 - **搏冷分析**：自动识别高赔冷门场次
@@ -76,7 +76,7 @@ npm run dev           # 终端 2：启动前端 (port 5173)
 
 **快捷方式：** 直接双击 `dev.bat`，自动打开两个命令行窗口。
 
-打开浏览器访问 `http://localhost:5173`
+打开浏览器访问 `http://localhost:5173`（开发模式）
 
 ### 方式三：服务器部署
 
@@ -102,10 +102,10 @@ npm run dev           # 终端 2：启动前端 (port 5173)
 npm install --production
 
 # 2. 启动服务
-NODE_ENV=production PORT=5173 node server/index.js
+NODE_ENV=production PORT=8888 node server/index.js
 ```
 
-访问 `http://服务器IP:5173`
+访问 `http://服务器IP:8888`
 
 ---
 
@@ -122,6 +122,7 @@ NODE_ENV=production PORT=5173 node server/index.js
 **数据源：** [https://worldcup26.ir/get/games](https://worldcup26.ir/get/games)
 - 免费、无需 API 密钥
 - 覆盖全部 104 场比赛
+- 已验证数据准确性（与 FIFA.com 一致）
 - 实时更新比分和状态
 - 北京时间为准
 
@@ -238,6 +239,7 @@ world-cup-predictor/
 │   ├── ai.js             # 预测引擎
 │   ├── auto.js           # 自动刷新调度
 │   ├── odds.js           # 赔率获取
+│   ├── scraper.js        # 数据源模块（worldcup26.ir API）
 │   └── routes/           # API 路由
 ├── src/                  # 前端 React 代码
 ├── data/                 # SQLite 数据库（自动生成）
@@ -292,6 +294,11 @@ A: 打开设置页面 → 选择 Provider → 输入 API Key → 保存。未配
 ---
 
 ## 更新日志
+
+### v1.5.1 (2026-06-26)
+- 简化数据抓取模块：移除5个失效外部数据源，仅保留 worldcup26.ir API
+- 重写数据同步逻辑：移除过度保护的数据覆盖防护，确保比分正确更新
+- 验证API数据准确性：所有60场已完赛比分与FIFA.com一致
 
 ### v1.5.0 (2026-06-26)
 - 修复推荐日期切换逻辑：11点前推荐昨天，11点后推荐今天

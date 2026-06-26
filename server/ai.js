@@ -187,25 +187,35 @@ function poissonProb(k, lambda) {
   return p
 }
 
-// Team strength parameters derived from FIFA ranking
-// attack: 0.8-1.5, defense: 0.5-1.2 (lower = stronger)
 function fallbackPrediction(home, away) {
   const diff = away.ranking - home.ranking
+  const rankGap = Math.abs(diff)
 
-  let hXg = 1.4 + diff / 55
-  let aXg = 1.0 - diff / 55
-  hXg = Math.max(0.3, Math.min(3.5, hXg))
+  // 2026世界杯高进球趋势: 基础xG调高
+  // 主队优势 + 排名差距映射
+  let hXg = 1.55 + diff / 48
+  let aXg = 1.15 - diff / 48
+
+  // 排名差距极大时(>40), 强队进攻更猛
+  if (rankGap > 40) {
+    hXg += 0.3
+    aXg -= 0.15
+  }
+
+  hXg = Math.max(0.4, Math.min(4.0, hXg))
   aXg = Math.max(0.3, Math.min(3.5, aXg))
 
+  // 扩展到 8-8 的比分网格
+  const maxGoals = 8
   const scores = []
-  for (let h = 0; h <= 5; h++) {
-    for (let a = 0; a <= 5; a++) {
+  for (let h = 0; h <= maxGoals; h++) {
+    for (let a = 0; a <= maxGoals; a++) {
       scores.push({ h, a, prob: poissonProb(h, hXg) * poissonProb(a, aXg) })
     }
   }
   scores.sort((x, y) => y.prob - x.prob)
 
-  // Marginal probabilities for total goals
+  // 总进球概率
   const totalProbs = {}
   for (const s of scores) {
     const t = s.h + s.a
@@ -216,30 +226,37 @@ function fallbackPrediction(home, away) {
   const tg1 = sortedTotals[0][0]
   const tg2 = sortedTotals.length > 1 ? sortedTotals[1][0] : tg1
 
-  // Draw bias for close matches
+  // 选择最可能比分: 仅当概率非常接近且排名差距很小时才偏向平局
   const top = scores[0]
   const drawBest = scores.find(s => s.h === s.a)
-  const rankGap = Math.abs(diff)
-  const useDraw = drawBest && rankGap < 20 && top.h !== top.a &&
-    (top.prob - drawBest.prob) / top.prob < 0.20
+  // 收紧平局条件: 排名差距<10 且 概率差<10% 才选平局
+  const useDraw = drawBest && rankGap < 10 && top.h !== top.a &&
+    (top.prob - drawBest.prob) / top.prob < 0.10
   const pick = useDraw ? drawBest : top
 
   const homeScore = pick.h
   const awayScore = pick.a
-  const halfH = Math.round(homeScore * 0.40)
-  const halfA = Math.round(awayScore * 0.45)
-  const confidence = Math.min(0.80, 0.2 + Math.min(1, rankGap / 60) * 0.35 + top.prob * 2)
 
-  // Per-type confidence from Poisson marginals
+  // 半场进球: 调整为更合理的比例 (上半场约45%的进球)
+  const halfH = homeScore > 0 ? Math.max(1, Math.round(homeScore * 0.45 + (homeScore === 1 ? 0.1 : 0))) : 0
+  const halfA = awayScore > 0 ? Math.max(1, Math.round(awayScore * 0.42 + (awayScore === 1 ? 0.1 : 0))) : 0
+  // 防止半场超过全场
+  const adjHalfH = Math.min(halfH, homeScore)
+  const adjHalfA = Math.min(halfA, awayScore)
+
+  const confidence = Math.min(0.82, 0.22 + Math.min(1, rankGap / 50) * 0.38 + top.prob * 1.8)
+
+  // 各维度置信度
   const confScore = Math.round(top.prob * 100) / 100
   const predResult = homeScore > awayScore ? '胜' : homeScore < awayScore ? '负' : '平'
   const confResult = Math.round(scores.filter(s => predResult === (s.h > s.a ? '胜' : s.h < s.a ? '负' : '平')).reduce((sum, s) => sum + s.prob, 0) * 100) / 100
   const confTotal = Math.round((totalProbs[tg1] || 0) * 100) / 100
-  // Half-full: estimate from independence of halves
-  const halfPattern = halfH > halfA ? '胜' : halfH < halfA ? '负' : '平'
+
+  const halfPattern = adjHalfH > adjHalfA ? '胜' : adjHalfH < adjHalfA ? '负' : '平'
   const fullPattern = homeScore > awayScore ? '胜' : homeScore < awayScore ? '负' : '平'
   const confHalf = Math.round(scores.filter(s => {
-    const sh = Math.round(s.h * 0.40); const sa = Math.round(s.a * 0.45)
+    const sh = s.h > 0 ? Math.max(1, Math.round(s.h * 0.45)) : 0
+    const sa = s.a > 0 ? Math.max(1, Math.round(s.a * 0.42)) : 0
     const hp = sh > sa ? '胜' : sh < sa ? '负' : '平'
     const fp = s.h > s.a ? '胜' : s.h < s.a ? '负' : '平'
     return hp === halfPattern && fp === fullPattern
@@ -247,12 +264,12 @@ function fallbackPrediction(home, away) {
 
   return {
     home_score: homeScore, away_score: awayScore,
-    half_home_score: halfH, half_away_score: halfA,
+    half_home_score: adjHalfH, half_away_score: adjHalfA,
     result_1x2: predResult,
     total_goals: tg1,
     total_goals_2: tg1 === tg2 ? null : tg2,
     handicap_result: calcHandicap(homeScore, awayScore, home.ranking, away.ranking),
-    half_full_result: calcHalfFull(halfH, halfA, homeScore, awayScore),
+    half_full_result: calcHalfFull(adjHalfH, adjHalfA, homeScore, awayScore),
     confidence: Math.round(confidence * 100) / 100,
     confidence_detail: JSON.stringify([confScore, confResult, confTotal, confHalf]),
   }
