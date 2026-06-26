@@ -12,6 +12,15 @@ export function Navbar() {
           <NavLink to="/champion" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>👑 冠亚军</NavLink>
           <NavLink to="/settings" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>⚙️ 设置</NavLink>
           <NavLink to="/versions" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>📝 更新日志</NavLink>
+          <a
+            href="https://10000yun.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="nav-link nav-link-tooltip"
+            data-tip="免费影视APP下载_手机追剧软件推荐_2026最新影视资源分享平台"
+          >
+            🎬 更多好玩影视直播软件
+          </a>
         </div>
       </div>
     </nav>
