@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
 
-const LOCAL_VERSION = '1.7.0'
+const LOCAL_VERSION = '1.8.0'
 const CHECK_INTERVAL = 30 * 60 * 1000 // 30分钟检查一次
 
 interface DownloadInfo {
