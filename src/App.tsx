@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { Navbar } from './components/Navbar'
+import { VersionBanner } from './components/VersionBanner'
 import { MatchList } from './pages/MatchList'
 import { History } from './pages/History'
 import { Champion } from './pages/Champion'
@@ -35,6 +36,7 @@ export default function App() {
         <footer className="footer">
           <p>2026世界杯预测系统 · 数据自动更新 · 仅供参考</p>
         </footer>
+        <VersionBanner />
       </div>
     </BrowserRouter>
   )

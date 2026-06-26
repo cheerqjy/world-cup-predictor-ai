@@ -28,6 +28,7 @@ dist-ssr
 
 # Electron build output
 release
+/release-server/downloads/
 !/release-server/dist/
 
 # Auto-generated

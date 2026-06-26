@@ -101,6 +101,21 @@ const startSh = [
 ].join('\n')
 fs.writeFileSync(path.join(RELEASE_DIR, 'start.sh'), startSh)
 
+// 9. Copy Windows release files to downloads directory
+console.log('[7/7] Copying Windows release files...')
+const downloadsDir = path.join(RELEASE_DIR, 'downloads')
+const releaseDir = path.join(ROOT, 'release')
+if (fs.existsSync(releaseDir)) {
+  fs.mkdirSync(downloadsDir, { recursive: true })
+  const releaseFiles = fs.readdirSync(releaseDir)
+  for (const file of releaseFiles) {
+    if (file.endsWith('.exe')) {
+      fs.copyFileSync(path.join(releaseDir, file), path.join(downloadsDir, file))
+      console.log(`  Copied: ${file}`)
+    }
+  }
+}
+
 console.log()
 console.log('========================================')
 console.log('  Build Complete!')

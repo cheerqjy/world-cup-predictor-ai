@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
+const fs = require('fs')
 const { initDb } = require('./db')
 const { seed } = require('./seed')
 const { startAutoRefresh } = require('./auto')
@@ -10,6 +11,11 @@ const matchesRouter = require('./routes/matches')
 const predictionsRouter = require('./routes/predictions')
 const championRouter = require('./routes/champion')
 const recommendationsRouter = require('./routes/recommendations')
+
+// 读取版本号
+const pkgPath = path.join(__dirname, '..', 'package.json')
+const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+const SERVER_VERSION = pkg.version
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -32,6 +38,32 @@ async function main() {
     time: new Date().toISOString()
   }))
 
+  app.get('/api/version', (req, res) => {
+    const downloadsDir = path.join(__dirname, '..', 'downloads')
+    const downloads = []
+    
+    // 检查可用的下载文件
+    const fs2 = require('fs')
+    if (fs2.existsSync(downloadsDir)) {
+      const files = fs2.readdirSync(downloadsDir)
+      for (const file of files) {
+        if (file.endsWith('.exe')) {
+          downloads.push({
+            name: file,
+            url: `/downloads/${file}`,
+            size: fs2.statSync(path.join(downloadsDir, file)).size
+          })
+        }
+      }
+    }
+    
+    res.json({
+      version: SERVER_VERSION,
+      buildTime: pkg.buildTime || null,
+      downloads
+    })
+  })
+
   app.get('/api/time', (req, res) => res.json({
     beijing: getBeijingDateStr(),
     utc: new Date().toISOString(),
@@ -45,6 +77,7 @@ async function main() {
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, '..', 'dist')))
+    app.use('/downloads', express.static(path.join(__dirname, '..', 'downloads')))
     app.get('*', (req, res) => {
       res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'))
     })

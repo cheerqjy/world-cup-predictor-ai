@@ -1181,6 +1181,79 @@ body {
 .version-changes li::before { content: ''; position: absolute; left: 0; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
 .version-footer { margin-top: 20px; padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.8rem; color: var(--text2); text-align: center; }
 
+/* Version Check */
+.version-check-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+}
+
+.version-check-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.version-check-label {
+  color: var(--text2);
+  font-size: 0.9rem;
+}
+
+.version-check-ver {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--accent);
+}
+
+.version-check-btn {
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.version-check-btn:hover { opacity: 0.9; }
+.version-check-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.version-check-result {
+  padding: 12px 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+}
+
+.version-download-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.version-download-btn {
+  padding: 6px 14px;
+  background: var(--accent);
+  color: #000;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.version-download-btn:hover { opacity: 0.9; }
+
 /* 移动端响应式 */
 @media (max-width: 640px) {
   .app { padding: 0 10px; }

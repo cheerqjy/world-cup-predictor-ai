@@ -67,4 +67,9 @@ export const api = {
       return request('/recommendations/snapshots')
     },
   },
+  version: {
+    check() {
+      return request('/version')
+    },
+  },
 }
