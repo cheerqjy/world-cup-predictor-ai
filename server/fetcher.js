@@ -7,41 +7,52 @@ async function fetchAndUpdate() {
   const todayBj = getBeijingDateStr()
   console.log(`[Fetcher] === 数据更新开始 (${todayBj}) ===`)
 
-  const scrapedScores = await scrapeRealScores()
+  const scrapedData = await scrapeRealScores()
 
-  if (scrapedScores.length === 0) {
-    console.log('[Fetcher] 无比分数据，跳过')
+  if (scrapedData.length === 0) {
+    console.log('[Fetcher] 无数据，跳过')
     return { updated: 0, errors: 0 }
-  }
-
-  // 建立比分查找表
-  const scoreMap = {}
-  for (const s of scrapedScores) {
-    scoreMap[`${s.home}-${s.away}`] = s
   }
 
   let updated = 0
   let skipped = 0
 
-  for (const score of scrapedScores) {
-    const { home, away, homeScore, awayScore } = score
+  for (const item of scrapedData) {
+    const { home, away, homeScore, awayScore, status, matchNumber } = item
 
-    const dbMatch = db.prepare(
-      `SELECT id, status, home_score, away_score FROM matches WHERE home_team_id=? AND away_team_id=?`
-    ).get(home, away)
+    // 已完赛：更新比分
+    if (status === 'completed') {
+      const dbMatch = db.prepare(
+        `SELECT id, status, home_score, away_score FROM matches WHERE home_team_id=? AND away_team_id=?`
+      ).get(home, away)
 
-    if (!dbMatch) {
-      skipped++
-      continue
+      if (!dbMatch) { skipped++; continue }
+
+      if (dbMatch.home_score !== homeScore || dbMatch.away_score !== awayScore) {
+        db.prepare(
+          'UPDATE matches SET home_score=?, away_score=?, status=? WHERE id=?'
+        ).run(homeScore, awayScore, 'completed', dbMatch.id)
+        updated++
+        console.log(`[Fetcher] 比分: ${home} ${dbMatch.home_score ?? '-'}-${dbMatch.away_score ?? '-'} → ${homeScore}-${awayScore}`)
+      }
     }
 
-    // 如果比分有变化，更新
-    if (dbMatch.home_score !== homeScore || dbMatch.away_score !== awayScore) {
-      db.prepare(
-        'UPDATE matches SET home_score=?, away_score=?, status=? WHERE id=?'
-      ).run(homeScore, awayScore, 'completed', dbMatch.id)
-      updated++
-      console.log(`[Fetcher] ${home} ${dbMatch.home_score ?? '-'}-${dbMatch.away_score ?? '-'} → ${homeScore}-${awayScore}`)
+    // 未开赛但对阵已确定：更新淘汰赛对阵
+    if (status !== 'completed' && matchNumber && matchNumber >= 73) {
+      const dbMatch = db.prepare(
+        `SELECT id, home_team_id, away_team_id FROM matches WHERE match_number=?`
+      ).get(matchNumber)
+
+      if (dbMatch) {
+        const needsUpdate = (!dbMatch.home_team_id && home) || (!dbMatch.away_team_id && away)
+        if (needsUpdate) {
+          db.prepare(
+            'UPDATE matches SET home_team_id=COALESCE(?,home_team_id), away_team_id=COALESCE(?,away_team_id) WHERE id=?'
+          ).run(home, away, dbMatch.id)
+          updated++
+          console.log(`[Fetcher] 对阵: #${matchNumber} ${home} vs ${away}`)
+        }
+      }
     }
   }
 

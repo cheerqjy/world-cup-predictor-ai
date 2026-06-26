@@ -53,23 +53,37 @@ async function scrapeRealScores() {
     for (const game of games) {
       const home = TEAM_NAME_MAP[game.home_team_name_en]
       const away = TEAM_NAME_MAP[game.away_team_name_en]
-      if (!home || !away) continue
 
       const isFinished = game.finished === 'TRUE'
-      if (!isFinished) continue
 
-      results.push({
-        home,
-        away,
-        homeScore: parseInt(game.home_score) || 0,
-        awayScore: parseInt(game.away_score) || 0,
-        status: 'completed',
-        source: 'worldcup26.ir',
-        confidence: 0.9,
-      })
+      // 已完赛：返回比分
+      if (isFinished && home && away) {
+        results.push({
+          home,
+          away,
+          homeScore: parseInt(game.home_score) || 0,
+          awayScore: parseInt(game.away_score) || 0,
+          status: 'completed',
+          source: 'worldcup26.ir',
+          confidence: 0.9,
+        })
+      }
+
+      // 淘汰赛对阵已确定（即使未开赛）
+      if (home && away && !isFinished) {
+        results.push({
+          home,
+          away,
+          homeScore: null,
+          awayScore: null,
+          status: game.time_elapsed !== 'notstarted' ? 'live' : 'scheduled',
+          matchNumber: parseInt(game.game_number),
+          source: 'worldcup26.ir',
+        })
+      }
     }
 
-    console.log(`[Scraper] worldcup26.ir: ${results.length} 场已完成`)
+    console.log(`[Scraper] worldcup26.ir: ${results.length} 场`)
     return results
   } catch (e) {
     console.log(`[Scraper] API失败: ${e.message}`)

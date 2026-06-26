@@ -146,6 +146,58 @@ function buildMatches() {
   return matches
 }
 
+// 淘汰赛真实数据（百度体育确认）
+const KNOCKOUT_DATA = [
+  // 1/16决赛
+  { mn: 73, home: 'rsa', away: 'can', date: '2026-06-29', time: '03:00' },
+  { mn: 74, home: null, away: null, date: '2026-06-29', time: '09:00' },
+  { mn: 75, home: 'bra', away: 'jpn', date: '2026-06-30', time: '01:00' },
+  { mn: 76, home: 'ger', away: null, date: '2026-06-30', time: '04:30' },
+  { mn: 77, home: 'ned', away: 'mar', date: '2026-06-30', time: '09:00' },
+  { mn: 78, home: 'civ', away: null, date: '2026-07-01', time: '01:00' },
+  { mn: 79, home: null, away: null, date: '2026-07-01', time: '05:00' },
+  { mn: 80, home: null, away: null, date: '2026-07-01', time: '09:00' },
+  { mn: 81, home: null, away: null, date: '2026-07-02', time: '01:00' },
+  { mn: 82, home: null, away: null, date: '2026-07-02', time: '05:00' },
+  { mn: 83, home: null, away: null, date: '2026-07-02', time: '09:00' },
+  { mn: 84, home: null, away: null, date: '2026-07-03', time: '01:00' },
+  { mn: 85, home: null, away: null, date: '2026-07-03', time: '05:00' },
+  { mn: 86, home: null, away: null, date: '2026-07-03', time: '09:00' },
+  { mn: 87, home: null, away: null, date: '2026-07-03', time: '23:00' },
+  { mn: 88, home: null, away: null, date: '2026-07-04', time: '03:00' },
+  // 1/8决赛
+  { mn: 89, home: null, away: null, date: '2026-07-05', time: '03:00' },
+  { mn: 90, home: null, away: null, date: '2026-07-05', time: '09:00' },
+  { mn: 91, home: null, away: null, date: '2026-07-06', time: '03:00' },
+  { mn: 92, home: null, away: null, date: '2026-07-06', time: '09:00' },
+  { mn: 93, home: null, away: null, date: '2026-07-07', time: '03:00' },
+  { mn: 94, home: null, away: null, date: '2026-07-07', time: '09:00' },
+  { mn: 95, home: null, away: null, date: '2026-07-08', time: '03:00' },
+  { mn: 96, home: null, away: null, date: '2026-07-08', time: '09:00' },
+  // 1/4决赛
+  { mn: 97, home: null, away: null, date: '2026-07-10', time: '03:00' },
+  { mn: 98, home: null, away: null, date: '2026-07-10', time: '09:00' },
+  { mn: 99, home: null, away: null, date: '2026-07-11', time: '03:00' },
+  { mn: 100, home: null, away: null, date: '2026-07-11', time: '09:00' },
+  // 半决赛
+  { mn: 101, home: null, away: null, date: '2026-07-15', time: '03:00' },
+  { mn: 102, home: null, away: null, date: '2026-07-16', time: '09:00' },
+  // 季军赛 + 决赛
+  { mn: 103, home: null, away: null, date: '2026-07-19', time: '03:00' },
+  { mn: 104, home: null, away: null, date: '2026-07-20', time: '03:00' },
+]
+
+function updateKnockoutData(db) {
+  let updated = 0
+  const stmt = db.prepare('UPDATE matches SET home_team_id=COALESCE(?,home_team_id), away_team_id=COALESCE(?,away_team_id), match_date=?, match_time=? WHERE match_number=?')
+  for (const k of KNOCKOUT_DATA) {
+    stmt.run(k.home, k.away, k.date, k.time, k.mn)
+    updated++
+  }
+  console.log(`[Seed] 淘汰赛数据已更新: ${updated} 场`)
+  return updated
+}
+
 async function seed() {
   const { initDb } = require('./db')
   await initDb()
@@ -155,6 +207,12 @@ async function seed() {
     console.log('数据库未初始化，请先启动服务')
     return
   }
+
+  // 每次启动都更新淘汰赛数据
+  updateKnockoutData(db)
+  const { saveDbSync } = require('./db')
+  saveDbSync()
+
   const existingTeams = db.prepare('SELECT COUNT(*) as cnt FROM teams').get()
   if (existingTeams.cnt > 0) {
     console.log('数据库已有数据，跳过种子数据')
