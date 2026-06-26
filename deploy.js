@@ -12,6 +12,14 @@ console.log('  WorldCup Predictor - Deploy Packager')
 console.log('========================================')
 console.log()
 
+// 0. Build Windows portable first
+console.log('[0/7] Building Windows portable...')
+try {
+  execSync('npx electron-builder --win portable', { stdio: 'inherit', cwd: ROOT })
+} catch (e) {
+  console.log('  Windows build failed, continuing...')
+}
+
 // 1. Clean
 console.log('[1/6] Cleaning old release...')
 if (fs.existsSync(RELEASE_DIR)) {
