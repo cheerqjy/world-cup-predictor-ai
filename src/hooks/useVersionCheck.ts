@@ -7,13 +7,30 @@ const CHECK_INTERVAL = 30 * 60 * 1000 // 30分钟检查一次
 interface DownloadInfo {
   name: string
   url: string
-  size: number
+  size?: number
+  label?: string
 }
 
 interface VersionInfo {
   version: string
   buildTime?: string
   downloads: DownloadInfo[]
+}
+
+function parseVersion(v: string) {
+  return v.split('.').map(Number)
+}
+
+function isNewer(serverVer: string, localVer: string) {
+  const s = parseVersion(serverVer)
+  const l = parseVersion(localVer)
+  for (let i = 0; i < Math.max(s.length, l.length); i++) {
+    const sv = s[i] || 0
+    const lv = l[i] || 0
+    if (sv > lv) return true
+    if (sv < lv) return false
+  }
+  return false
 }
 
 export function useVersionCheck() {
@@ -26,8 +43,7 @@ export function useVersionCheck() {
       try {
         const info = await api.version.check()
         setLatestVersion(info)
-        // 比较版本号
-        if (info.version !== LOCAL_VERSION) {
+        if (isNewer(info.version, LOCAL_VERSION)) {
           setHasUpdate(true)
         }
       } catch (e) {

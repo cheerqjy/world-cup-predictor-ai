@@ -4,6 +4,22 @@ import { api } from '../api'
 
 const LOCAL_VERSION = versions[0]?.version || '1.0.0'
 
+function parseVersion(v: string) {
+  return v.split('.').map(Number)
+}
+
+function isNewer(serverVer: string, localVer: string) {
+  const s = parseVersion(serverVer)
+  const l = parseVersion(localVer)
+  for (let i = 0; i < Math.max(s.length, l.length); i++) {
+    const sv = s[i] || 0
+    const lv = l[i] || 0
+    if (sv > lv) return true
+    if (sv < lv) return false
+  }
+  return false
+}
+
 export function VersionLog() {
   const [checking, setChecking] = useState(false)
   const [versionInfo, setVersionInfo] = useState<any>(null)
@@ -15,10 +31,12 @@ export function VersionLog() {
     try {
       const info = await api.version.check()
       setVersionInfo(info)
-      if (info.version === LOCAL_VERSION) {
+      if (isNewer(info.version, LOCAL_VERSION)) {
+        setVersionMsg(`🔄 发现新版本 v${info.version}`)
+      } else if (info.version === LOCAL_VERSION) {
         setVersionMsg('✅ 当前已是最新版本')
       } else {
-        setVersionMsg(`🔄 发现新版本 v${info.version}`)
+        setVersionMsg('✅ 当前已是最新版本')
       }
     } catch {
       setVersionMsg('❌ 检查失败，请稍后重试')
@@ -50,16 +68,17 @@ export function VersionLog() {
       {versionMsg && (
         <div className="version-check-result">
           {versionMsg}
-          {versionInfo && versionInfo.version !== LOCAL_VERSION && versionInfo.downloads?.length > 0 && (
+          {versionInfo && isNewer(versionInfo.version, LOCAL_VERSION) && versionInfo.downloads?.length > 0 && (
             <div className="version-download-list">
-              {versionInfo.downloads.map((f: any) => (
+              {versionInfo.downloads.map((f: any, i: number) => (
                 <a
-                  key={f.name}
+                  key={i}
                   href={f.url}
-                  download
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="version-download-btn"
                 >
-                  ⬇ {f.name}
+                  ⬇ {f.label || f.name}
                 </a>
               ))}
             </div>

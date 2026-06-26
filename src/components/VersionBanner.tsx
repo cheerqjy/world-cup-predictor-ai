@@ -1,17 +1,9 @@
 import { useVersionCheck } from '../hooks/useVersionCheck'
 
-function formatSize(bytes: number) {
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-}
-
 export function VersionBanner() {
   const { hasUpdate, latestVersion, dismiss, localVersion } = useVersionCheck()
 
   if (!hasUpdate || !latestVersion) return null
-
-  const portableFile = latestVersion.downloads?.find(f => f.name.includes('Portable'))
-  const setupFile = latestVersion.downloads?.find(f => f.name.includes('Setup'))
 
   return (
     <div style={{
@@ -56,17 +48,19 @@ export function VersionBanner() {
       
       {latestVersion.downloads && latestVersion.downloads.length > 0 && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {portableFile && (
+          {latestVersion.downloads.map((f: any, i: number) => (
             <a
-              href={portableFile.url}
-              download
+              key={i}
+              href={f.url}
+              target="_blank"
+              rel="noopener noreferrer"
               style={{
                 flex: 1,
                 minWidth: 120,
                 padding: '8px 12px',
-                background: 'var(--accent)',
-                color: '#000',
-                border: 'none',
+                background: i === 0 ? 'var(--accent)' : 'transparent',
+                color: i === 0 ? '#000' : 'var(--accent)',
+                border: i === 0 ? 'none' : '1px solid var(--accent)',
                 borderRadius: 6,
                 fontSize: '0.8rem',
                 fontWeight: 600,
@@ -75,31 +69,9 @@ export function VersionBanner() {
                 textAlign: 'center',
               }}
             >
-              ⬇ 便携版 ({formatSize(portableFile.size)})
+              ⬇ {f.label || f.name}
             </a>
-          )}
-          {setupFile && (
-            <a
-              href={setupFile.url}
-              download
-              style={{
-                flex: 1,
-                minWidth: 120,
-                padding: '8px 12px',
-                background: 'transparent',
-                color: 'var(--accent)',
-                border: '1px solid var(--accent)',
-                borderRadius: 6,
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                textDecoration: 'none',
-                textAlign: 'center',
-              }}
-            >
-              ⬇ 安装版 ({formatSize(setupFile.size)})
-            </a>
-          )}
+          ))}
         </div>
       )}
     </div>
