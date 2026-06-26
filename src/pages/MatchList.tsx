@@ -42,6 +42,7 @@ export function MatchList() {
   const [activeRound, setActiveRound] = useState('小组赛')
   const [activeGroup, setActiveGroup] = useState('')
   const [activeTab, setActiveTab] = useState<'round' | 'date'>('date')
+  const [dateTab, setDateTab] = useState<'future' | 'history'>('future')
   const [loading, setLoading] = useState(true)
   const [rounds, setRounds] = useState<{ round: string; count: number }[]>([])
   const [now, setNow] = useState(new Date())
@@ -245,6 +246,19 @@ export function MatchList() {
         </div>
       )}
 
+      {activeTab === 'date' && (
+        <div className="round-tabs" style={{ marginTop: 4 }}>
+          <button className={`round-tab ${dateTab === 'future' ? 'active' : ''}`}
+            onClick={() => setDateTab('future')}>
+            ⏳ 未来
+          </button>
+          <button className={`round-tab ${dateTab === 'history' ? 'active' : ''}`}
+            onClick={() => setDateTab('history')}>
+            📋 历史
+          </button>
+        </div>
+      )}
+
       <div className="match-list">
         {activeTab === 'date' ? (
           (() => {
@@ -255,13 +269,13 @@ export function MatchList() {
               grouped.set(m.match_date, list)
             }
             const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
-            const futureDates = [...grouped.entries()].filter(([date]) => date >= todayStr)
-            const pastDates = [...grouped.entries()].filter(([date]) => date < todayStr)
-            const sorted = [
-              ...futureDates.sort((a, b) => a[0].localeCompare(b[0])),
-              ...pastDates.sort((a, b) => b[0].localeCompare(a[0]))
-            ]
-            return sorted.map(([date, dayMatches]) => (
+            const futureDates = [...grouped.entries()].filter(([date]) => date >= todayStr).sort((a, b) => a[0].localeCompare(b[0]))
+            const pastDates = [...grouped.entries()].filter(([date]) => date < todayStr).sort((a, b) => b[0].localeCompare(a[0]))
+            const displayDates = dateTab === 'future' ? futureDates : pastDates
+            if (displayDates.length === 0) {
+              return <div className="empty-state">{dateTab === 'future' ? '暂无未来比赛' : '暂无历史比赛'}</div>
+            }
+            return displayDates.map(([date, dayMatches]) => (
               <div key={date}>
                 <div className="date-header">{formatDateLabel(date, now)}</div>
                 {dayMatches.sort((a, b) => (a.match_time || '').localeCompare(b.match_time || '')).map(m => renderMatchCard(m))}

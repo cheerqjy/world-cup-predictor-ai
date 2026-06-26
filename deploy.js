@@ -15,7 +15,20 @@ console.log()
 // 1. Clean
 console.log('[1/6] Cleaning old release...')
 if (fs.existsSync(RELEASE_DIR)) {
-  fs.rmSync(RELEASE_DIR, { recursive: true, force: true })
+  try { fs.rmSync(RELEASE_DIR, { recursive: true, force: true }) } catch (e) {
+    // 部分文件被占用时，尝试逐个删除
+    const deleteDir = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name)
+        try {
+          if (entry.isDirectory()) deleteDir(p)
+          else fs.unlinkSync(p)
+        } catch {}
+      }
+      try { fs.rmdirSync(dir) } catch {}
+    }
+    deleteDir(RELEASE_DIR)
+  }
 }
 fs.mkdirSync(RELEASE_DIR, { recursive: true })
 
@@ -110,8 +123,12 @@ if (fs.existsSync(releaseDir)) {
   const releaseFiles = fs.readdirSync(releaseDir)
   for (const file of releaseFiles) {
     if (file.endsWith('.exe')) {
-      fs.copyFileSync(path.join(releaseDir, file), path.join(downloadsDir, file))
-      console.log(`  Copied: ${file}`)
+      try {
+        fs.copyFileSync(path.join(releaseDir, file), path.join(downloadsDir, file))
+        console.log(`  Copied: ${file}`)
+      } catch (e) {
+        console.log(`  Skip (locked): ${file}`)
+      }
     }
   }
 }
