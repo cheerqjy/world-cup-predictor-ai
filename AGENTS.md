@@ -111,32 +111,32 @@ Remove-Item release\favicon.svg, release\icon.png, release\icons.svg, release\*.
 Remove-Item release\gzh.webp, release\zanzhu.webp
 ```
 
-### 5. 打包 release-server/
+### 5. 打包 release-server/（一键打包）
 ```bash
-# 清理旧的
-Remove-Item -Recurse -Force release-server
+# ✅ 唯一正确方式：运行 deploy.js
+node deploy.js
 
-# 复制所有内容（用 robocopy 加速）
-robocopy server release-server\server /E /NFL /NDL /NJH /NJS /NC /NS /NP /MT:8
-robocopy dist release-server\dist /E /NFL /NDL /NJH /NJS /NC /NS /NP /MT:8
-robocopy public release-server\public /E /NFL /NDL /NJH /NJS /NC /NS /NP /MT:8
-robocopy node_modules release-server\node_modules /E /NFL /NDL /NJH /NJS /NC /NS /NP /MT:8
-robocopy data release-server\data /E /NFL /NDL /NJH /NJS /NC /NS /NP /MT:8  # ⚠️ 不能漏！
-
-# 复制配置
-Copy-Item package.json release-server\package.json -Force
-
-# 复制 exe 到 downloads
-New-Item -ItemType Directory -Path release-server\downloads -Force
-Copy-Item release\*.exe release-server\downloads\ -Force
-
-# 手动创建启动脚本（deploy.js 会生成，但重建目录时会丢失）
+# deploy.js 会自动完成：
+# 1. 打包 Windows exe
+# 2. 构建前端 (npm run build)
+# 3. 复制 dist/ server/ data/ public/ node_modules/
+# 4. 生成 start.bat / start.sh / install.bat
+# 5. 复制 exe 到 downloads/
 ```
+
+⚠️ **不要手动 robocopy 拼凑 release-server/，必须用 `node deploy.js` 一键生成。**
+手动拼凑容易漏掉文件（如 start.bat、data/worldcup.db、node_modules/），导致服务器数据不一致。
 
 ### 6. 上传部署
 - 用户手动上传 `release-server/` 到服务器
 - 在服务器运行 `install.bat`（首次），然后 `start.bat`
 - **不需要重新分发 Windows exe**（它只是连服务器的壳）
+
+### 7. 本地调试与服务器数据同步
+- 本地调试必须用 `npm run dev:all`（同时启动前后端），fetcher 才会更新数据库
+- `npm run dev` 只启动前端，**不启动后端**，数据库不会更新，数据会和服务器不一致
+- 打包时 `deploy.js` 会把本地最新的 `data/worldcup.db` 一起打包进 release-server/
+- 服务器上访问推荐页面时，服务端会自动修正历史快照（补方案2、重新结算），并持久化到 DB
 
 ---
 
@@ -209,9 +209,11 @@ Copy-Item release\*.exe release-server\downloads\ -Force
 ## 八、禁止事项
 
 1. **不要**在打包时漏掉 `data/worldcup.db`
-2. **不要**用 `Remove-Item -Recurse -Force release-server` 后忘记创建 start.bat 等脚本
-3. **不要**在 release/ 里留中间产物（win-unpacked 等）
-4. **不要**改 `server/db.js` 的数据库路径
-5. **不要**在服务器上覆盖数据库（上传的是预置基础数据，服务器启动后 fetcher 会自动更新）
-6. **不要**凭记忆操作，先读本文件
-7. **不要**用 `npm run dev` 就以为本地和服务器一样——它只启动前端，不启动后端，数据库不会更新
+2. **不要**手动 robocopy 拼凑 release-server/，必须用 `node deploy.js` 一键生成（否则容易漏 start.bat、data/、node_modules/）
+3. **不要**用 `Remove-Item -Recurse -Force release-server` 后忘记创建 start.bat 等脚本
+4. **不要**在 release/ 里留中间产物（win-unpacked 等）
+5. **不要**改 `server/db.js` 的数据库路径
+6. **不要**在服务器上覆盖数据库（上传的是预置基础数据，服务器启动后 fetcher 会自动更新）
+7. **不要**凭记忆操作，先读本文件
+8. **不要**用 `npm run dev` 就以为本地和服务器一样——它只启动前端，不启动后端，数据库不会更新
+9. **不要**打包完 release-server/ 后不检查 start.bat、data/worldcup.db 是否存在
