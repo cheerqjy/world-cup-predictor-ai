@@ -82,7 +82,7 @@ function computeRqProbs(homeRanking, awayRanking, rqNum) {
   const { grid } = computeScoreGrid(homeRanking, awayRanking)
   const rq = { '胜': 0, '平': 0, '负': 0 }
   for (const s of grid) {
-    const adjHome = s.h - rqNum
+    const adjHome = s.h + rqNum
     const r = adjHome > s.a ? '胜' : adjHome < s.a ? '负' : '平'
     rq[r] += s.prob
   }
@@ -154,9 +154,9 @@ function inferRqNum(pick) {
 }
 
 function getRqDisplay(rqNum) {
-  // 体彩让球规则：正数=主队让球，负数=主队受让
-  if (rqNum > 0) return `让${rqNum}`
-  if (rqNum < 0) return `受让${Math.abs(rqNum)}`
+  // 体彩让球规则：正数=主队受让（弱队），负数=主队让球（强队）
+  if (rqNum > 0) return `受让${rqNum}`
+  if (rqNum < 0) return `让${Math.abs(rqNum)}`
   return '平手'
 }
 
@@ -444,58 +444,78 @@ function buildRecommendationPackage(picks, realOddsMap) {
 }
 
 function selectBestValueBet(pick, scheme1Bet, oddsData) {
-  // 方案二：双选策略——每场选2个互补结果，中一个就算中
-  // 优先使用体彩真实赔率，无真实赔率时用 Poisson 概率引擎计算
   const homeRank = pick.home?.ranking || 50
   const awayRank = pick.away?.ranking || 50
   const probs = computeBetProbs(homeRank, awayRank)
+  const rqNum = oddsData && typeof oddsData.rqNum === 'number' ? oddsData.rqNum : inferRqNum(pick)
+  const rqProbs = computeRqProbs(homeRank, awayRank, rqNum)
 
-  // 获取单个选项的真实赔率
+  const hasHAD = oddsData && (oddsData.hasHAD !== false) && (oddsData.sp3 > 0 || oddsData.sp1 > 0 || oddsData.sp0 > 0)
+  const hasHHAD = oddsData && (oddsData.hasHHAD !== false) && (oddsData.rqSp3 > 0 || oddsData.rqSp1 > 0 || oddsData.rqSp0 > 0)
+
   const getRealOdds = (type, key) => {
-    if (!oddsData) return estimateOdds(probs[type]?.[key] || 0.01)
-    if (type === 'spf') return oddsData[({ '胜': 'sp3', '平': 'sp1', '负': 'sp0' }[key])] || estimateOdds(probs.spf[key] || 0.01)
-    if (type === 'bqc') return oddsData.bqcOdds?.[key] || estimateOdds(probs.bqc[key] || 0.01)
-    return estimateOdds(probs[type]?.[key] || 0.01)
+    if (type === 'spf') return oddsData?.[({ '胜': 'sp3', '平': 'sp1', '负': 'sp0' }[key])] || 0
+    if (type === 'rq') return oddsData?.[({ '胜': 'rqSp3', '平': 'rqSp1', '负': 'rqSp0' }[key])] || 0
+    if (type === 'bqc') return oddsData?.bqcOdds?.[key] || 0
+    return 0
   }
 
-  // 生成所有可行双选组合，按 realProb 降序
+  const getProb = (type, key) => {
+    if (type === 'spf') return probs.spf[key] || 0
+    if (type === 'rq') return rqProbs[key] || 0
+    if (type === 'bqc') return probs.bqc[key] || 0
+    return 0
+  }
+
   const candidates = []
 
-  // SPF 双选（胜平负组合，概率 55-96%）
-  const spfPairs = [
-    ['胜', '平'], ['平', '负'], ['胜', '负'],
-  ]
-  for (const [k1, k2] of spfPairs) {
-    const p1 = probs.spf[k1] || 0; const p2 = probs.spf[k2] || 0
-    if (p1 <= 0 || p2 <= 0) continue
-    candidates.push({
-      type: 'spf', typeLabel: '胜平负', marketTitle: '胜平负', marketTags: ['单关', '过关'],
-      betName: getResultLabel(k1), optionKey: k1,
-      optionKey2: k2, betName2: getResultLabel(k2),
-      odds: round2(getRealOdds('spf', k1)), odds2: round2(getRealOdds('spf', k2)),
-      prob: round2(p1 + p2), realProb: round2(p1 + p2), realOdds: !!(oddsData && oddsData.sp3 > 0),
-    })
+  if (hasHAD) {
+    for (const [k1, k2] of [['胜', '平'], ['平', '负'], ['胜', '负']]) {
+      const p1 = getProb('spf', k1); const p2 = getProb('spf', k2)
+      const o1 = getRealOdds('spf', k1); const o2 = getRealOdds('spf', k2)
+      if (p1 <= 0 || p2 <= 0 || o1 <= 0 || o2 <= 0) continue
+      candidates.push({
+        type: 'spf', typeLabel: '胜平负', marketTitle: '胜平负', marketTags: ['单关', '过关'],
+        betName: getResultLabel(k1), optionKey: k1,
+        optionKey2: k2, betName2: getResultLabel(k2),
+        odds: round2(o1), odds2: round2(o2),
+        prob: round2(p1 + p2), realProb: round2(p1 + p2), realOdds: true,
+      })
+    }
   }
 
-  // BQC 双选（半全场组合，概率 40-85%）
-  const bqcPairs = [
-    ['胜胜', '平胜'], ['负负', '平负'],
-  ]
-  for (const [k1, k2] of bqcPairs) {
-    const p1 = probs.bqc[k1] || 0; const p2 = probs.bqc[k2] || 0
-    if (p1 <= 0 || p2 <= 0) continue
-    candidates.push({
-      type: 'bqc', typeLabel: '半全场', marketTitle: '半全场胜平负', marketTags: ['单关', '过关'],
-      betName: k1, optionKey: k1,
-      optionKey2: k2, betName2: k2,
-      odds: round2(getRealOdds('bqc', k1)), odds2: round2(getRealOdds('bqc', k2)),
-      prob: round2(p1 + p2), realProb: round2(p1 + p2), realOdds: !!(oddsData && oddsData.bqcOdds?.[k1] > 0),
-    })
+  if (hasHHAD) {
+    for (const [k1, k2] of [['胜', '平'], ['平', '负'], ['胜', '负']]) {
+      const p1 = getProb('rq', k1); const p2 = getProb('rq', k2)
+      const o1 = getRealOdds('rq', k1); const o2 = getRealOdds('rq', k2)
+      if (p1 <= 0 || p2 <= 0 || o1 <= 0 || o2 <= 0) continue
+      candidates.push({
+        type: 'rq', typeLabel: `让球(${getRqDisplay(rqNum)})`, marketTitle: '让球胜平负', marketTags: ['过关'],
+        betName: getResultLabel(k1), optionKey: k1, handicap: rqNum,
+        optionKey2: k2, betName2: getResultLabel(k2),
+        odds: round2(o1), odds2: round2(o2),
+        prob: round2(p1 + p2), realProb: round2(p1 + p2), realOdds: true,
+      })
+    }
+  }
+
+  if (hasHAD) {
+    for (const [k1, k2] of [['胜胜', '平胜'], ['负负', '平负']]) {
+      const p1 = probs.bqc[k1] || 0; const p2 = probs.bqc[k2] || 0
+      const o1 = oddsData?.bqcOdds?.[k1] || 0; const o2 = oddsData?.bqcOdds?.[k2] || 0
+      if (p1 <= 0 || p2 <= 0 || o1 <= 0 || o2 <= 0) continue
+      candidates.push({
+        type: 'bqc', typeLabel: '半全场', marketTitle: '半全场胜平负', marketTags: ['单关', '过关'],
+        betName: k1, optionKey: k1,
+        optionKey2: k2, betName2: k2,
+        odds: round2(o1), odds2: round2(o2),
+        prob: round2(p1 + p2), realProb: round2(p1 + p2), realOdds: true,
+      })
+    }
   }
 
   candidates.sort((a, b) => b.realProb - a.realProb)
 
-  // 阈值 70%：确保 3串1 可实现"3中2"（0.7³=0.34 偏保守；实际中 0.7²×0.3×3+0.7³=0.78 满足要求）
   if (candidates[0] && candidates[0].realProb >= 0.70) return candidates[0]
 
   return null

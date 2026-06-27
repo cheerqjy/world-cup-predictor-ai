@@ -6,6 +6,7 @@ const { initDb } = require('./db')
 const { seed } = require('./seed')
 const { startAutoRefresh } = require('./auto')
 const { initTime, getBeijingDateStr } = require('./tz')
+const { startOddsCron } = require('./odds')
 
 const matchesRouter = require('./routes/matches')
 const predictionsRouter = require('./routes/predictions')
@@ -78,6 +79,11 @@ async function main() {
     console.log(`[Server] 服务器运行在 http://localhost:${PORT}`)
     console.log(`[Server] 外网访问: http://120.48.126.193:${PORT}`)
     startAutoRefresh(2)
+    try {
+      const { getDb } = require('./db')
+      const db = getDb()
+      startOddsCron(db)
+    } catch (e) { console.log(`[Odds] cron 启动失败: ${e.message}`) }
   })
 }
 

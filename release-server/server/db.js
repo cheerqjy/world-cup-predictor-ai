@@ -150,6 +150,17 @@ async function initDb() {
         active_data TEXT NOT NULL,
         past_data TEXT
       );
+      CREATE TABLE IF NOT EXISTS lottery_odds (
+        match_id INTEGER PRIMARY KEY,
+        home_name TEXT,
+        away_name TEXT,
+        pools TEXT,
+        sp3 REAL DEFAULT 0, sp1 REAL DEFAULT 0, sp0 REAL DEFAULT 0,
+        rq_num INTEGER DEFAULT 0,
+        rq_sp3 REAL DEFAULT 0, rq_sp1 REAL DEFAULT 0, rq_sp0 REAL DEFAULT 0,
+        bqc_odds TEXT,
+        updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
     `)
     // Migration for existing databases
     try { db.exec(`ALTER TABLE predictions ADD COLUMN total_goals_2 TEXT`) } catch (e) {}
