@@ -150,7 +150,19 @@ Copy-Item release\*.exe release-server\downloads\ -Force
 
 ---
 
-## 五、服务器信息
+## 五、本地开发命令
+
+| 命令 | 作用 | 数据库更新 |
+|---|---|---|
+| `npm run dev` | 只启动前端 Vite (localhost:5173) | ❌ 不更新 |
+| `npm run dev:server` | 只启动后端 (localhost:3001) | ✅ fetcher 自动更新 |
+| `npm run dev:all` | 同时启动前后端 | ✅ fetcher 自动更新 |
+
+⚠️ **`npm run dev` 只有前端没有后端，数据库不会更新！本地和服务器数据会不一致！**
+
+---
+
+## 六、服务器信息
 
 - 地址：`http://120.48.126.193:8888/`
 - 部署方式：用户手动上传 release-server/ 后重启
@@ -162,7 +174,7 @@ Copy-Item release\*.exe release-server\downloads\ -Force
 
 ---
 
-## 六、核心业务逻辑备忘
+## 七、核心业务逻辑备忘
 
 ### 方案一（稳胆推荐）
 - `buildBetSlip()` 从 `selectedBet` 生成
@@ -194,11 +206,12 @@ Copy-Item release\*.exe release-server\downloads\ -Force
 
 ---
 
-## 七、禁止事项
+## 八、禁止事项
 
 1. **不要**在打包时漏掉 `data/worldcup.db`
 2. **不要**用 `Remove-Item -Recurse -Force release-server` 后忘记创建 start.bat 等脚本
 3. **不要**在 release/ 里留中间产物（win-unpacked 等）
 4. **不要**改 `server/db.js` 的数据库路径
-5. **不要**在服务器上覆盖数据库（上传的是预置基础数据，服务器启动后会自己更新）
+5. **不要**在服务器上覆盖数据库（上传的是预置基础数据，服务器启动后 fetcher 会自动更新）
 6. **不要**凭记忆操作，先读本文件
+7. **不要**用 `npm run dev` 就以为本地和服务器一样——它只启动前端，不启动后端，数据库不会更新
