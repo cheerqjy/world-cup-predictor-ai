@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.12.0",
+    "date": "2026-06-28",
+    "changes": [
+      "修复历史记录方案二无赛果比对：快照保存时picks已有actual但betSlip2未结算的场景",
+      "回填betSlip2时立即结算，避免won字段为null",
+      "结算后持久化到DB，避免每次请求重复计算",
+      "新增未结算检测：betSlip2有won=null的已完成比赛也触发重新结算"
+    ]
+  },
+  {
     "version": "1.11.0",
     "date": "2026-06-27",
     "changes": [

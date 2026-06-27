@@ -1137,6 +1137,40 @@ router.get('/snapshots', (req, res) => {
       }
     }
 
+    // 历史快照补方案2：对 betSlip2 无比赛的快照，用 Poisson 模型赔率生成
+    {
+      const { generateAllSyntheticOdds } = require('../odds')
+      const matchRows = db.prepare(`
+        SELECT m.id, t1.name_cn AS home_name, t2.name_cn AS away_name,
+               t1.ranking AS home_ranking, t2.ranking AS away_ranking
+        FROM matches m
+        JOIN teams t1 ON m.home_team_id = t1.id
+        JOIN teams t2 ON m.away_team_id = t2.id
+      `).all()
+      const syntheticOddsMap = generateAllSyntheticOdds(matchRows)
+      const matchIdToOdds = {}
+      for (const m of matchRows) {
+        const key = `${m.home_name}|${m.away_name}`
+        if (syntheticOddsMap[key]) matchIdToOdds[m.id] = syntheticOddsMap[key]
+      }
+      for (const [date, entry] of Object.entries(snapshotMap)) {
+        if (entry.betSlip2.matches && entry.betSlip2.matches.length > 0) continue
+        try {
+          const backfilledPack = buildRecommendationPackage(entry.picks, matchIdToOdds)
+          entry.picks = backfilledPack.picks
+          entry.betSlip2 = settleBetSlip(backfilledPack.betSlip2, entry.picks)
+          entry.dailyProfit2 = entry.betSlip2.status === 'won'
+            ? round2(entry.betSlip2.payout - entry.betSlip2.amount)
+            : entry.betSlip2.status === 'lost' ? round2(-entry.betSlip2.amount) : 0
+          db.prepare('UPDATE recommendation_snapshots SET active_data = ? WHERE snapshot_date = ?').run(
+            JSON.stringify({ picks: entry.picks, betSlip: entry.betSlip, dailyProfit: entry.dailyProfit, betSlip2: entry.betSlip2, dailyProfit2: entry.dailyProfit2 }),
+            date
+          )
+          console.log(`[History] ${date} 补方案2: ${entry.betSlip2.matches.length} 场`)
+        } catch (e) { console.log(`[History] ${date} 补方案2失败: ${e.message}`) }
+      }
+    }
+
     // 对所有快照（包括恢复的旧快照）用当前赛果重新比对结算
     const allDateActuals = db.prepare(`
       SELECT match_date, id as match_id, home_score, away_score, half_home_score, half_away_score, status
@@ -1164,11 +1198,28 @@ router.get('/snapshots', (req, res) => {
           needsResettle = true
         }
       }
+      // 检查 betSlip2 是否有未结算的已完成比赛（快照保存时 picks 已有 actual，但 betSlip2 未结算）
+      if (!needsResettle && entry.betSlip2?.matches?.length > 0) {
+        for (const match of entry.betSlip2.matches) {
+          if (match.won === null || match.won === undefined) {
+            const pick = entry.picks.find(p => p.match_id === match.matchId)
+            if (pick?.actual) { needsResettle = true; break }
+          }
+        }
+      }
       if (needsResettle) {
+        const beforeLen2 = entry.betSlip2?.matches?.length || 0
         entry.betSlip = settleBetSlip(entry.betSlip, entry.picks)
         entry.betSlip2 = settleBetSlip(entry.betSlip2, entry.picks)
+        const afterLen2 = entry.betSlip2?.matches?.length || 0
+        if (beforeLen2 !== afterLen2) console.log(`[Resettle] ${date}: betSlip2 ${beforeLen2}→${afterLen2}`)
         entry.dailyProfit = entry.betSlip.status === 'won' ? round2(entry.betSlip.payout - entry.betSlip.amount) : entry.betSlip.status === 'lost' ? round2(-entry.betSlip.amount) : 0
         entry.dailyProfit2 = entry.betSlip2.status === 'won' ? round2(entry.betSlip2.payout - entry.betSlip2.amount) : entry.betSlip2.status === 'lost' ? round2(-entry.betSlip2.amount) : 0
+        // 持久化到DB，避免下次请求重新计算
+        db.prepare('UPDATE recommendation_snapshots SET active_data = ? WHERE snapshot_date = ?').run(
+          JSON.stringify({ picks: entry.picks, betSlip: entry.betSlip, dailyProfit: entry.dailyProfit, betSlip2: entry.betSlip2, dailyProfit2: entry.dailyProfit2 }),
+          date
+        )
       }
     }
 
