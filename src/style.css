@@ -1209,6 +1209,12 @@ body {
 .bet-odds { font-size: 0.7rem; color: var(--gold); margin-left: auto; }
 .bet-line2 { display: flex; align-items: center; gap: 8px; padding-left: 26px; }
 .bet-name { font-size: 0.8rem; color: #fff; }
+.bet-name-alt { color: #ffd700; font-weight: bold; }
+.bet-name-sep { color: #888; margin: 0 1px; }
+.bet-name-hit { color: #4caf50; font-weight: bold; }
+.bet-name-miss { color: #888; }
+.bet-odds-hit { color: #4caf50; font-weight: bold; }
+.bet-odds-miss { color: #888; }
 .bet-amount { font-size: 0.75rem; font-weight: 700; color: var(--gold); }
 .bet-result { font-size: 0.75rem; font-weight: 700; margin-left: auto; }
 .bet-result-win { color: var(--green); }
