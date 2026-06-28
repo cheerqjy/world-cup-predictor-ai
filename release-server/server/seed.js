@@ -146,26 +146,27 @@ function buildMatches() {
   return matches
 }
 
-// 淘汰赛真实数据（百度体育确认）
+// 淘汰赛真实数据（来源：体彩官网 + worldcup26.ir API）
+// 日期时间为北京时间
 const KNOCKOUT_DATA = [
-  // 1/16决赛
-  { mn: 73, home: 'rsa', away: 'can', date: '2026-06-29', time: '03:00' },
-  { mn: 74, home: null, away: null, date: '2026-06-29', time: '09:00' },
-  { mn: 75, home: 'bra', away: 'jpn', date: '2026-06-30', time: '01:00' },
-  { mn: 76, home: 'ger', away: null, date: '2026-06-30', time: '04:30' },
-  { mn: 77, home: 'ned', away: 'mar', date: '2026-06-30', time: '09:00' },
-  { mn: 78, home: 'civ', away: null, date: '2026-07-01', time: '01:00' },
-  { mn: 79, home: null, away: null, date: '2026-07-01', time: '05:00' },
-  { mn: 80, home: null, away: null, date: '2026-07-01', time: '09:00' },
-  { mn: 81, home: null, away: null, date: '2026-07-02', time: '01:00' },
-  { mn: 82, home: null, away: null, date: '2026-07-02', time: '05:00' },
-  { mn: 83, home: null, away: null, date: '2026-07-02', time: '09:00' },
-  { mn: 84, home: null, away: null, date: '2026-07-03', time: '01:00' },
-  { mn: 85, home: null, away: null, date: '2026-07-03', time: '05:00' },
-  { mn: 86, home: null, away: null, date: '2026-07-03', time: '09:00' },
-  { mn: 87, home: null, away: null, date: '2026-07-03', time: '23:00' },
-  { mn: 88, home: null, away: null, date: '2026-07-04', time: '03:00' },
-  // 1/8决赛
+  // 1/16决赛（体彩编号对应 worldcup26.ir 编号）
+  { mn: 73, home: 'rsa', away: 'can', date: '2026-06-29', time: '03:00' },   // 南非 vs 加拿大
+  { mn: 74, home: 'bra', away: 'jpn', date: '2026-06-30', time: '01:00' },   // 巴西 vs 日本
+  { mn: 75, home: 'ger', away: 'par', date: '2026-06-30', time: '04:30' },   // 德国 vs 巴拉圭
+  { mn: 76, home: 'ned', away: 'mar', date: '2026-06-30', time: '09:00' },   // 荷兰 vs 摩洛哥
+  { mn: 77, home: 'civ', away: 'nor', date: '2026-07-01', time: '01:00' },   // 科特迪瓦 vs 挪威
+  { mn: 78, home: 'fra', away: 'swe', date: '2026-07-01', time: '05:00' },   // 法国 vs 瑞典
+  { mn: 79, home: 'mex', away: 'ecu', date: '2026-07-01', time: '08:00' },   // 墨西哥 vs 厄瓜多尔
+  { mn: 80, home: 'eng', away: 'cod', date: '2026-07-02', time: '00:00' },   // 英格兰 vs 民主刚果
+  { mn: 81, home: 'usa', away: 'bih', date: '2026-07-02', time: '05:00' },   // 美国 vs 波黑
+  { mn: 82, home: 'bel', away: 'sen', date: '2026-07-02', time: '01:00' },   // 比利时 vs 塞内加尔
+  { mn: 83, home: 'por', away: 'cro', date: '2026-07-03', time: '08:00' },   // 葡萄牙 vs 克罗地亚
+  { mn: 84, home: 'esp', away: 'aut', date: '2026-07-03', time: '00:00' },   // 西班牙 vs 奥地利
+  { mn: 85, home: 'sui', away: 'alg', date: '2026-07-03', time: '09:00' },   // 瑞士 vs 阿尔及利亚
+  { mn: 86, home: 'arg', away: 'cpv', date: '2026-07-04', time: '07:00' },   // 阿根廷 vs 佛得角
+  { mn: 87, home: 'col', away: 'gha', date: '2026-07-04', time: '09:30' },   // 哥伦比亚 vs 加纳
+  { mn: 88, home: 'aus', away: 'egy', date: '2026-07-04', time: '01:00' },   // 澳大利亚 vs 埃及
+  // 1/8决赛（待小组赛结果确定后填充）
   { mn: 89, home: null, away: null, date: '2026-07-05', time: '03:00' },
   { mn: 90, home: null, away: null, date: '2026-07-05', time: '09:00' },
   { mn: 91, home: null, away: null, date: '2026-07-06', time: '03:00' },
@@ -189,7 +190,7 @@ const KNOCKOUT_DATA = [
 
 function updateKnockoutData(db) {
   let updated = 0
-  const stmt = db.prepare('UPDATE matches SET home_team_id=COALESCE(?,home_team_id), away_team_id=COALESCE(?,away_team_id), match_date=?, match_time=? WHERE match_number=?')
+  const stmt = db.prepare('UPDATE matches SET home_team_id=?, away_team_id=?, match_date=?, match_time=? WHERE match_number=?')
   for (const k of KNOCKOUT_DATA) {
     stmt.run(k.home, k.away, k.date, k.time, k.mn)
     updated++

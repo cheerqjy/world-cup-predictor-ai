@@ -25,6 +25,9 @@ const TEAM_NAME_MAP = {
   'Wales': 'wal', 'Peru': 'per', 'Chile': 'chi',
 }
 
+// 体彩官网 API（获取在售比赛和对阵）
+const LOTTERY_URL = 'https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?channel='
+// worldcup26.ir API（获取比分和淘汰赛对阵）
 const WC_API_URL = 'https://worldcup26.ir/get/games'
 
 function fetchJson(url) {
@@ -70,6 +73,7 @@ async function scrapeRealScores() {
       }
 
       // 淘汰赛对阵已确定（即使未开赛）
+      // API 使用 game.id 作为比赛编号（对应我们的 match_number）
       if (home && away && !isFinished) {
         results.push({
           home,
@@ -77,7 +81,7 @@ async function scrapeRealScores() {
           homeScore: null,
           awayScore: null,
           status: game.time_elapsed !== 'notstarted' ? 'live' : 'scheduled',
-          matchNumber: parseInt(game.game_number),
+          matchNumber: parseInt(game.id),
           source: 'worldcup26.ir',
         })
       }

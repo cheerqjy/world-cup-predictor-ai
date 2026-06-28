@@ -204,6 +204,12 @@ node deploy.js
 - 30分钟定时任务 `startOddsCron()` 抓取并缓存到 `lottery_odds` 表
 - 无真实赔率时用 `generateSyntheticOdds()` 合成
 
+### 淘汰赛数据（v1.13.0 修复）
+- 数据来源：worldcup26.ir API（球队对阵）+ 体彩官网（北京时间）
+- `seed.js` 中 `KNOCKOUT_DATA` 每次启动**强制覆盖**（不用 COALESCE）
+- 匹配规则：`scraper.js` 使用 `game.id` 对应 `match_number`
+- 1/16决赛共16场（编号73-88），完整对阵见 seed.js
+
 ---
 
 ## 八、禁止事项
@@ -217,3 +223,4 @@ node deploy.js
 7. **不要**凭记忆操作，先读本文件
 8. **不要**用 `npm run dev` 就以为本地和服务器一样——它只启动前端，不启动后端，数据库不会更新
 9. **不要**打包完 release-server/ 后不检查 start.bat、data/worldcup.db 是否存在
+10. **不要**修改 `seed.js` 中的 `KNOCKOUT_DATA` 除非有可靠数据源（体彩官网 + worldcup26.ir API 交叉验证）

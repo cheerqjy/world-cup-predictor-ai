@@ -37,10 +37,10 @@ async function fetchAndUpdate() {
       }
     }
 
-    // 未开赛但对阵已确定：更新淘汰赛对阵
+    // 未开赛但对阵已确定：更新淘汰赛对阵和时间
     if (status !== 'completed' && matchNumber && matchNumber >= 73) {
       const dbMatch = db.prepare(
-        `SELECT id, home_team_id, away_team_id FROM matches WHERE match_number=?`
+        `SELECT id, home_team_id, away_team_id, match_date, match_time FROM matches WHERE match_number=?`
       ).get(matchNumber)
 
       if (dbMatch) {
