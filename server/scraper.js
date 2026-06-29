@@ -47,6 +47,38 @@ function fetchJson(url) {
   })
 }
 
+function parseScorers(scorersStr) {
+  if (!scorersStr || scorersStr === 'null') return []
+  try {
+    const cleaned = scorersStr.replace(/\\"/g, '"').replace(/"/g, '"')
+    return JSON.parse(cleaned)
+  } catch {
+    return scorersStr.split(',').map(s => s.trim().replace(/"/g, ''))
+  }
+}
+
+function countHalfGoals(scorersStr) {
+  const scorers = parseScorers(scorersStr)
+  let half = 0
+  for (const s of scorers) {
+    // 匹配完整时间表达式，如 45+2' 或 90+2' 或 23'
+    const m = s.match(/(\d+(?:\+\d+)?)'/)
+    if (m) {
+      const minuteStr = m[1]
+      // 含有 +N 表示伤停补时
+      if (minuteStr.includes('+')) {
+        const base = parseInt(minuteStr)
+        // 45+N' = 上半场补时，90+N' = 下半场补时
+        if (base <= 45) half++
+      } else {
+        // 纯数字，≤45 为上半场
+        if (parseInt(minuteStr) <= 45) half++
+      }
+    }
+  }
+  return half
+}
+
 async function scrapeRealScores() {
   try {
     const data = await fetchJson(WC_API_URL)
@@ -59,13 +91,17 @@ async function scrapeRealScores() {
 
       const isFinished = game.finished === 'TRUE'
 
-      // 已完赛：返回比分
+      // 已完赛：返回比分+半场数据
       if (isFinished && home && away) {
+        const homeHalf = countHalfGoals(game.home_scorers)
+        const awayHalf = countHalfGoals(game.away_scorers)
         results.push({
           home,
           away,
           homeScore: parseInt(game.home_score) || 0,
           awayScore: parseInt(game.away_score) || 0,
+          halfHomeScore: homeHalf,
+          halfAwayScore: awayHalf,
           status: 'completed',
           source: 'worldcup26.ir',
           confidence: 0.9,

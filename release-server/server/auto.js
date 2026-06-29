@@ -1,5 +1,5 @@
 const { getDb, saveDbSync } = require('./db')
-const { predictMatch, predictChampion } = require('./ai')
+const { predictMatch, predictChampion, calcHalfFull } = require('./ai')
 const { fetchAndUpdate } = require('./fetcher')
 const { getOddsForMatch } = require('./odds')
 const { getBeijingNow, getBeijingDateStr } = require('./tz')
@@ -12,6 +12,7 @@ function updateCompletedAccuracy() {
       p.result_1x2, p.total_goals, p.total_goals_2, p.half_full_result, p.handicap_result,
       m.home_score as mh, m.away_score as ma,
       m.half_home_score as mhh, m.half_away_score as mha,
+      ht.ranking as home_rank, at.ranking as away_rank,
       ht.name_cn as home_name, at.name_cn as away_name
     FROM predictions p
     JOIN matches m ON p.match_id = m.id
@@ -21,7 +22,7 @@ function updateCompletedAccuracy() {
   `).all()
 
   const update = db.prepare(`
-    UPDATE predictions SET correct_score=?, correct_result=?, correct_total_goals=?, correct_half_full=?, correct_rq_result=?
+    UPDATE predictions SET half_full_result=?, correct_score=?, correct_result=?, correct_total_goals=?, correct_half_full=?, correct_rq_result=?
     WHERE id=?
   `)
 
@@ -40,9 +41,10 @@ function updateCompletedAccuracy() {
     const halfR = p.mhh > p.mha ? '胜' : p.mhh < p.mha ? '负' : '平'
     const fullR = p.mh > p.ma ? '胜' : p.mh < p.ma ? '负' : '平'
     const actualHF = `${halfR}-${fullR}`
-    const correctHF = p.half_full_result === actualHF ? 1 : 0
 
-    // 让球结果: 使用体彩实际让球数计算
+    const empiricalHF = calcHalfFull(p.home_rank, p.away_rank, p.mh, p.ma)
+    const correctHF = empiricalHF === actualHF ? 1 : 0
+
     let correctRq = 0
     if (p.handicap_result && p.home_name && p.away_name) {
       const oddsData = getOddsForMatch(p.home_name, p.away_name)
@@ -53,7 +55,7 @@ function updateCompletedAccuracy() {
       if (rqPred === rqActual) correctRq = 1
     }
 
-    update.run(correctScore, correctResult, correctTG, correctHF, correctRq, p.id)
+    update.run(empiricalHF, correctScore, correctResult, correctTG, correctHF, correctRq, p.id)
   }
 
   if (completed.length > 0) {

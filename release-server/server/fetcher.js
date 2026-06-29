@@ -18,9 +18,9 @@ async function fetchAndUpdate() {
   let skipped = 0
 
   for (const item of scrapedData) {
-    const { home, away, homeScore, awayScore, status, matchNumber } = item
+    const { home, away, homeScore, awayScore, halfHomeScore, halfAwayScore, status, matchNumber } = item
 
-    // 已完赛：更新比分
+    // 已完赛：更新比分+半场数据
     if (status === 'completed') {
       const dbMatch = db.prepare(
         `SELECT id, status, home_score, away_score FROM matches WHERE home_team_id=? AND away_team_id=?`
@@ -28,12 +28,17 @@ async function fetchAndUpdate() {
 
       if (!dbMatch) { skipped++; continue }
 
-      if (dbMatch.home_score !== homeScore || dbMatch.away_score !== awayScore) {
+      // 更新条件: 比分变化 或 半场数据原本为null但抓取到了
+      const hasHalfData = halfHomeScore !== null && halfHomeScore !== undefined
+      const halfWasNull = dbMatch.half_home_score === null || dbMatch.half_away_score === null
+      const needsUpdate = dbMatch.home_score !== homeScore || dbMatch.away_score !== awayScore ||
+        (hasHalfData && halfWasNull) // 只有半场数据从无到有时才更新
+      if (needsUpdate) {
         db.prepare(
-          'UPDATE matches SET home_score=?, away_score=?, status=? WHERE id=?'
-        ).run(homeScore, awayScore, 'completed', dbMatch.id)
+          'UPDATE matches SET home_score=?, away_score=?, half_home_score=?, half_away_score=?, status=? WHERE id=?'
+        ).run(homeScore, awayScore, halfHomeScore || 0, halfAwayScore || 0, 'completed', dbMatch.id)
         updated++
-        console.log(`[Fetcher] 比分: ${home} ${dbMatch.home_score ?? '-'}-${dbMatch.away_score ?? '-'} → ${homeScore}-${awayScore}`)
+        console.log(`[Fetcher] 比分: ${home} ${dbMatch.home_score ?? '-'}-${dbMatch.away_score ?? '-'} → ${homeScore}-${awayScore} 半${halfHomeScore}:${halfAwayScore}`)
       }
     }
 

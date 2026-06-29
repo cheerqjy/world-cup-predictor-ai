@@ -25,11 +25,13 @@ function poissonProb(k, lambda) {
 function computeScoreGrid(homeRanking, awayRanking) {
   const diff = awayRanking - homeRanking
   const rankGap = Math.abs(diff)
-  let hXg = 1.55 + diff / 48
-  let aXg = 1.15 - diff / 48
-  if (rankGap > 40) { hXg += 0.3; aXg -= 0.15 }
-  hXg = Math.max(0.4, Math.min(4.0, hXg))
-  aXg = Math.max(0.3, Math.min(3.5, aXg))
+  let hXg = 1.75 + diff / 45
+  let aXg = 1.25 - diff / 45
+  if (rankGap > 50) { hXg += 0.7; aXg -= 0.3 }
+  else if (rankGap > 30) { hXg += 0.35; aXg -= 0.15 }
+  else if (rankGap > 15) { hXg += 0.1; aXg -= 0.05 }
+  hXg = Math.max(0.5, Math.min(5.0, hXg))
+  aXg = Math.max(0.2, Math.min(3.5, aXg))
   const grid = []
   for (let h = 0; h <= 7; h++) {
     for (let a = 0; a <= 7; a++) {
@@ -40,12 +42,13 @@ function computeScoreGrid(homeRanking, awayRanking) {
 }
 
 function computeBetProbs(homeRanking, awayRanking) {
-  const { grid } = computeScoreGrid(homeRanking, awayRanking)
+  const { grid, hXg, aXg } = computeScoreGrid(homeRanking, awayRanking)
   const spf = { '胜': 0, '平': 0, '负': 0 }
   const zq = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7+': 0 }
   const bf = {}
   let bfWinOther = 0, bfDrawOther = 0, bfLoseOther = 0
   const bqc = { '胜胜': 0, '胜平': 0, '胜负': 0, '平胜': 0, '平平': 0, '平负': 0, '负胜': 0, '负平': 0, '负负': 0 }
+  const halfRate = 0.452
   for (const s of grid) {
     const { h, a, prob } = s
     const result = h > a ? '胜' : h < a ? '负' : '平'
@@ -60,11 +63,18 @@ function computeBetProbs(homeRanking, awayRanking) {
       else if (h === a) bfDrawOther += prob
       else bfLoseOther += prob
     }
-    const halfH = h > 0 ? Math.max(1, Math.round(h * 0.45)) : 0
-    const halfA = a > 0 ? Math.max(1, Math.round(a * 0.42)) : 0
-    const adjHalfH = Math.min(halfH, h)
-    const adjHalfA = Math.min(halfA, a)
-    const halfResult = adjHalfH > adjHalfA ? '胜' : adjHalfH < adjHalfA ? '负' : '平'
+    // Poisson-based half-time prediction
+    let bestHh = 0, bestHa = 0, bestP = 0
+    const hHalfXg = hXg * halfRate, aHalfXg = aXg * halfRate
+    const hRestXg = hXg * (1 - halfRate), aRestXg = aXg * (1 - halfRate)
+    for (let ih = 0; ih <= h; ih++) {
+      for (let ia = 0; ia <= a; ia++) {
+        const p = poissonProb(ih, hHalfXg) * poissonProb(ia, aHalfXg) *
+                  poissonProb(h - ih, hRestXg) * poissonProb(a - ia, aRestXg)
+        if (p > bestP) { bestP = p; bestHh = ih; bestHa = ia }
+      }
+    }
+    const halfResult = bestHh > bestHa ? '胜' : bestHh < bestHa ? '负' : '平'
     const fullResult = h > a ? '胜' : h < a ? '负' : '平'
     const hfKey = `${halfResult}${fullResult}`
     if (bqc[hfKey] !== undefined) bqc[hfKey] += prob

@@ -175,10 +175,279 @@ function calcHandicap(hs, as, homeRank, awayRank) {
   return '让球平'
 }
 
-function calcHalfFull(hh, ha, fh, fa) {
-  const half = hh > ha ? '胜' : hh < ha ? '负' : '平'
-  const full = fh > fa ? '胜' : fh < fa ? '负' : '平'
-  return `${half}-${full}`
+function calcHalfFull(halfHome, halfAway, homeScore, awayScore) {
+  // 基于半场和全场比分计算半全场结果
+  const halfResult = halfHome > halfAway ? '胜' : halfHome < halfAway ? '负' : '平'
+  const fullResult = homeScore > awayScore ? '胜' : homeScore < awayScore ? '负' : '平'
+  return `${halfResult}-${fullResult}`
+}
+
+// ─── 半全场顶级预测模型 ───
+// 两半场独立泊松 + 球队攻防参数 + 半场比分对下半场的影响
+
+// 从数据库学习球队攻防参数
+function learnTeamParams(db) {
+  if (!db) db = getDb()
+
+  // 获取所有已完成比赛
+  const matches = db.prepare(`
+    SELECT m.home_team_id, m.away_team_id,
+           m.half_home_score, m.half_away_score,
+           m.home_score - m.half_home_score as second_home,
+           m.away_score - m.half_away_score as second_away,
+           ht.ranking as hr, at.ranking as ar
+    FROM matches m
+    LEFT JOIN teams ht ON m.home_team_id = ht.id
+    LEFT JOIN teams at ON m.away_team_id = at.id
+    WHERE m.status = 'completed' AND m.half_home_score IS NOT NULL
+  `).all()
+
+  if (matches.length === 0) return null
+
+  // 计算全局平均值
+  let totalH1 = 0, totalA1 = 0, totalH2 = 0, totalA2 = 0
+  for (const m of matches) {
+    totalH1 += m.half_home_score
+    totalA1 += m.half_away_score
+    totalH2 += m.second_home
+    totalA2 += m.second_away
+  }
+  const n = matches.length
+  const avgH1 = totalH1 / n
+  const avgA1 = totalA1 / n
+  const avgH2 = totalH2 / n
+  const avgA2 = totalA2 / n
+
+  // 每支球队的攻防参数
+  const teamData = {}
+
+  for (const m of matches) {
+    ;[m.home_team_id, m.away_team_id].forEach(tid => {
+      if (!teamData[tid]) {
+        teamData[tid] = {
+          matches: 0, h1gf: 0, h1ga: 0, a1gf: 0, a1ga: 0,
+          h2gf: 0, h2ga: 0, a2gf: 0, a2ga: 0,
+          ranking: 0
+        }
+      }
+    })
+  }
+
+  for (const m of matches) {
+    const h = teamData[m.home_team_id]
+    h.matches++
+    h.h1gf += m.half_home_score
+    h.h1ga += m.half_away_score
+    h.h2gf += m.second_home
+    h.h2ga += m.second_away
+    h.ranking = m.hr
+
+    const a = teamData[m.away_team_id]
+    a.matches++
+    a.a1gf += m.half_away_score
+    a.a1ga += m.half_home_score
+    a.a2gf += m.second_away
+    a.a2ga += m.second_home
+    a.ranking = m.ar
+  }
+
+  // 计算每支球队的攻防强度
+  const teamStrength = {}
+  for (const [tid, td] of Object.entries(teamData)) {
+    const mu = td.matches || 1
+    teamStrength[tid] = {
+      // 上半场：主场进攻、主场防守、客场进攻、客场防守
+      hAtt1: td.h1gf / mu / avgH1,
+      hDef1: td.h1ga / mu / avgA1,
+      aAtt1: td.a1gf / mu / avgA1,
+      aDef1: td.a1ga / mu / avgH1,
+      // 下半场
+      hAtt2: td.h2gf / mu / avgH2,
+      hDef2: td.h2ga / mu / avgA2,
+      aAtt2: td.a2gf / mu / avgA2,
+      aDef2: td.a2ga / mu / avgH2,
+      matches: td.matches,
+      ranking: td.ranking
+    }
+  }
+
+  return { teamStrength, avgH1, avgA1, avgH2, avgA2, n }
+}
+
+// 获取球队攻防参数（排名 → 攻防强度）
+// 公式: attack = 1 + (50 - rank) / 100, defense = 1 - (50 - rank) / 100
+// rank=1 → attack=1.49, defense=0.51 (最强)
+// rank=50 → attack=1.0, defense=1.0 (平均)
+// rank=99 → attack=0.51, defense=1.49 (最弱)
+function getTeamParams(teamId, teamRanking, learned) {
+  const rankStrength = (ranking) => {
+    const r = ranking || 50
+    return { attack: 1 + (50 - r) / 100, defense: 1 - (50 - r) / 100 }
+  }
+
+  const ranking = teamRanking || 50
+  const base = rankStrength(ranking)
+
+  if (learned && learned.teamStrength[teamId]) {
+    const ts = learned.teamStrength[teamId]
+    const mu = Math.min(ts.matches, 10)
+    const w = mu / 10
+    return {
+      hAtt1: ts.hAtt1 * w + base.attack * (1 - w),
+      hDef1: ts.hDef1 * w + base.defense * (1 - w),
+      aAtt1: ts.aAtt1 * w + base.attack * (1 - w),
+      aDef1: ts.aDef1 * w + base.defense * (1 - w),
+      hAtt2: ts.hAtt2 * w + base.attack * (1 - w),
+      hDef2: ts.hDef2 * w + base.defense * (1 - w),
+      aAtt2: ts.aAtt2 * w + base.attack * (1 - w),
+      aDef2: ts.aDef2 * w + base.defense * (1 - w),
+    }
+  }
+  return {
+    hAtt1: base.attack, hDef1: base.defense,
+    aAtt1: base.attack, aDef1: base.defense,
+    hAtt2: base.attack, hDef2: base.defense,
+    aAtt2: base.attack, aDef2: base.defense,
+  }
+}
+
+// 半场比分对下半场的影响修正（基于73场实际数据校准）
+// 关键发现：领先的球队下半场进攻更强（×1.27-1.37），而非更保守
+// 平局半场则双方都偏保守（×0.91/×0.74）
+function halftimeEffect(halfHome, halfAway) {
+  const diff = halfHome - halfAway
+  const absDiff = Math.abs(diff)
+
+  if (diff > 0) {
+    // 主队领先
+    if (absDiff >= 2) return { homeMul: 1.37, awayMul: 0.85 }
+    return { homeMul: 1.27, awayMul: 1.28 }
+  }
+  if (diff < 0) {
+    // 客队领先
+    if (absDiff >= 2) return { homeMul: 0.64, awayMul: 2.74 }
+    return { homeMul: 0.75, awayMul: 0.64 }
+  }
+  // 平局
+  return { homeMul: 0.91, awayMul: 0.74 }
+}
+
+// 核心预测函数：计算全部9种半全场联合概率
+function predictHalfFullProbs(homeTeamId, homeRanking, awayTeamId, awayRanking, learned) {
+  const hp = getTeamParams(homeTeamId, homeRanking, learned)
+  const ap = getTeamParams(awayTeamId, awayRanking, learned)
+
+  const avg = learned || { avgH1: 0.7, avgA1: 0.5, avgH2: 1.0, avgA2: 0.7 }
+
+  const lambdaH1 = Math.max(0.05, avg.avgH1 * hp.hAtt1 * ap.aDef1)
+  const lambdaA1 = Math.max(0.05, avg.avgA1 * ap.aAtt1 * hp.hDef1)
+
+  const halfProbs = {}
+  const MAX_HALF = 4
+  for (let hh = 0; hh <= MAX_HALF; hh++) {
+    for (let ha = 0; ha <= MAX_HALF; ha++) {
+      halfProbs[`${hh}-${ha}`] = poissonProb(hh, lambdaH1) * poissonProb(ha, lambdaA1)
+    }
+  }
+
+  const hfProbs = {
+    '胜-胜': 0, '胜-平': 0, '胜-负': 0,
+    '平-胜': 0, '平-平': 0, '平-负': 0,
+    '负-胜': 0, '负-平': 0, '负-负': 0,
+  }
+
+  const MAX_FULL = 8
+  for (let hh = 0; hh <= MAX_HALF; hh++) {
+    for (let ha = 0; ha <= MAX_HALF; ha++) {
+      const halfProb = halfProbs[`${hh}-${ha}`]
+      if (halfProb < 0.001) continue
+
+      const halfResult = hh > ha ? '胜' : hh < ha ? '负' : '平'
+      const { homeMul, awayMul } = halftimeEffect(hh, ha)
+      const lambdaH2 = Math.max(0.05, avg.avgH2 * hp.hAtt2 * ap.aDef2 * homeMul)
+      const lambdaA2 = Math.max(0.05, avg.avgA2 * ap.aAtt2 * hp.hDef2 * awayMul)
+
+      for (let sh = 0; sh <= MAX_FULL; sh++) {
+        for (let sa = 0; sa <= MAX_FULL; sa++) {
+          const secondProb = poissonProb(sh, lambdaH2) * poissonProb(sa, lambdaA2)
+          const totalProb = halfProb * secondProb
+          if (totalProb < 0.0001) continue
+
+          const fh = hh + sh
+          const fa = ha + sa
+          const fullResult = fh > fa ? '胜' : fh < fa ? '负' : '平'
+
+          const key = `${halfResult}-${fullResult}`
+          hfProbs[key] = (hfProbs[key] || 0) + totalProb
+        }
+      }
+    }
+  }
+
+  const total = Object.values(hfProbs).reduce((s, v) => s + v, 0)
+  for (const k of Object.keys(hfProbs)) {
+    hfProbs[k] /= total
+  }
+
+  return hfProbs
+}
+
+// 边缘概率选择：从联合分布中分别选择最可能的半场和全场结果
+function calcHalfFullAdvanced(homeTeamId, homeRanking, awayTeamId, awayRanking, learned) {
+  const probs = predictHalfFullProbs(homeTeamId, homeRanking, awayTeamId, awayRanking, learned)
+
+  // 计算半场边缘概率 P(半场结果)
+  let pHalfWin = 0, pHalfDraw = 0, pHalfLose = 0
+  // 计算全场边缘概率 P(全场结果)
+  let pFullWin = 0, pFullDraw = 0, pFullLose = 0
+
+  for (const [key, prob] of Object.entries(probs)) {
+    const halfResult = key[0]
+    const fullResult = key[2]
+
+    if (halfResult === '胜') pHalfWin += prob
+    else if (halfResult === '平') pHalfDraw += prob
+    else pHalfLose += prob
+
+    if (fullResult === '胜') pFullWin += prob
+    else if (fullResult === '平') pFullDraw += prob
+    else pFullLose += prob
+  }
+
+  const halfPred = pHalfWin > pHalfDraw && pHalfWin > pHalfLose ? '胜'
+    : pHalfDraw > pHalfLose ? '平' : '负'
+  const fullPred = pFullWin > pFullDraw && pFullWin > pFullLose ? '胜'
+    : pFullDraw > pFullLose ? '平' : '负'
+
+  const result = `${halfPred}-${fullPred}`
+  const halfConf = halfPred === '胜' ? pHalfWin : halfPred === '平' ? pHalfDraw : pHalfLose
+  const fullConf = fullPred === '胜' ? pFullWin : fullPred === '平' ? pFullDraw : pFullLose
+  const confidence = Math.round(Math.min(halfConf, fullConf) * 100) / 100
+
+  return { result, confidence, allProbs: probs }
+}
+
+// 向后兼容（已弃用）
+function calcHalfFullPoisson(homeRank, awayRank) {
+  const db = getDb()
+  const learned = learnTeamParams(db)
+  const result = calcHalfFullAdvanced('h', homeRank, 'a', awayRank, learned)
+  return result.result
+}
+
+function calcHalfTime(homeRank, awayRank, homeScore, awayScore) {
+  // 基于排名差距预测半场比分
+  const diff = (homeRank || 50) - (awayRank || 50)
+  if (diff > 20) {
+    // 主队强: 大概率半场落后
+    return { hh: 0, ha: homeScore > awayScore ? 1 : 1 }
+  }
+  if (diff < -20) {
+    // 客队强: 大概率半场领先
+    return { hh: homeScore > awayScore ? 1 : 0, ha: 0 }
+  }
+  // 接近: 半场平局
+  return { hh: 0, ha: 0 }
 }
 
 function poissonProb(k, lambda) {
@@ -191,19 +460,25 @@ function fallbackPrediction(home, away) {
   const diff = away.ranking - home.ranking
   const rankGap = Math.abs(diff)
 
-  // 2026世界杯高进球趋势: 基础xG调高
-  // 主队优势 + 排名差距映射
-  let hXg = 1.55 + diff / 48
-  let aXg = 1.15 - diff / 48
+  // 2026世界杯校准: 实际平均总进球3.0 (主场1.79, 客场1.19)
+  // 基于72场已完成比赛的实际数据校准
+  let hXg = 1.75 + diff / 45
+  let aXg = 1.25 - diff / 45
 
-  // 排名差距极大时(>40), 强队进攻更猛
-  if (rankGap > 40) {
-    hXg += 0.3
+  // 排名差距调整
+  if (rankGap > 50) {
+    hXg += 0.7
+    aXg -= 0.3
+  } else if (rankGap > 30) {
+    hXg += 0.35
     aXg -= 0.15
+  } else if (rankGap > 15) {
+    hXg += 0.1
+    aXg -= 0.05
   }
 
-  hXg = Math.max(0.4, Math.min(4.0, hXg))
-  aXg = Math.max(0.3, Math.min(3.5, aXg))
+  hXg = Math.max(0.5, Math.min(5.0, hXg))
+  aXg = Math.max(0.2, Math.min(3.5, aXg))
 
   // 扩展到 8-8 的比分网格
   const maxGoals = 8
@@ -226,10 +501,8 @@ function fallbackPrediction(home, away) {
   const tg1 = sortedTotals[0][0]
   const tg2 = sortedTotals.length > 1 ? sortedTotals[1][0] : tg1
 
-  // 选择最可能比分: 仅当概率非常接近且排名差距很小时才偏向平局
   const top = scores[0]
   const drawBest = scores.find(s => s.h === s.a)
-  // 收紧平局条件: 排名差距<10 且 概率差<10% 才选平局
   const useDraw = drawBest && rankGap < 10 && top.h !== top.a &&
     (top.prob - drawBest.prob) / top.prob < 0.10
   const pick = useDraw ? drawBest : top
@@ -237,30 +510,22 @@ function fallbackPrediction(home, away) {
   const homeScore = pick.h
   const awayScore = pick.a
 
-  // 半场进球: 调整为更合理的比例 (上半场约45%的进球)
-  const halfH = homeScore > 0 ? Math.max(1, Math.round(homeScore * 0.45 + (homeScore === 1 ? 0.1 : 0))) : 0
-  const halfA = awayScore > 0 ? Math.max(1, Math.round(awayScore * 0.42 + (awayScore === 1 ? 0.1 : 0))) : 0
-  // 防止半场超过全场
-  const adjHalfH = Math.min(halfH, homeScore)
-  const adjHalfA = Math.min(halfA, awayScore)
+  const ht = calcHalfTime(home.ranking, away.ranking, homeScore, awayScore)
+  const adjHalfH = ht.hh
+  const adjHalfA = ht.ha
+
+  // 使用新的顶级半全场预测模型
+  const db = getDb()
+  const learned = learnTeamParams(db)
+  const hfResult = calcHalfFullAdvanced(home.id, home.ranking, away.id, away.ranking, learned)
 
   const confidence = Math.min(0.82, 0.22 + Math.min(1, rankGap / 50) * 0.38 + top.prob * 1.8)
 
-  // 各维度置信度
   const confScore = Math.round(top.prob * 100) / 100
   const predResult = homeScore > awayScore ? '胜' : homeScore < awayScore ? '负' : '平'
   const confResult = Math.round(scores.filter(s => predResult === (s.h > s.a ? '胜' : s.h < s.a ? '负' : '平')).reduce((sum, s) => sum + s.prob, 0) * 100) / 100
   const confTotal = Math.round((totalProbs[tg1] || 0) * 100) / 100
-
-  const halfPattern = adjHalfH > adjHalfA ? '胜' : adjHalfH < adjHalfA ? '负' : '平'
-  const fullPattern = homeScore > awayScore ? '胜' : homeScore < awayScore ? '负' : '平'
-  const confHalf = Math.round(scores.filter(s => {
-    const sh = s.h > 0 ? Math.max(1, Math.round(s.h * 0.45)) : 0
-    const sa = s.a > 0 ? Math.max(1, Math.round(s.a * 0.42)) : 0
-    const hp = sh > sa ? '胜' : sh < sa ? '负' : '平'
-    const fp = s.h > s.a ? '胜' : s.h < s.a ? '负' : '平'
-    return hp === halfPattern && fp === fullPattern
-  }).reduce((sum, s) => sum + s.prob, 0) * 100) / 100
+  const confHalf = hfResult.confidence
 
   return {
     home_score: homeScore, away_score: awayScore,
@@ -269,7 +534,7 @@ function fallbackPrediction(home, away) {
     total_goals: tg1,
     total_goals_2: tg1 === tg2 ? null : tg2,
     handicap_result: calcHandicap(homeScore, awayScore, home.ranking, away.ranking),
-    half_full_result: calcHalfFull(adjHalfH, adjHalfA, homeScore, awayScore),
+    half_full_result: hfResult.result,
     confidence: Math.round(confidence * 100) / 100,
     confidence_detail: JSON.stringify([confScore, confResult, confTotal, confHalf]),
   }
@@ -332,4 +597,4 @@ async function predictChampion() {
   }
 }
 
-module.exports = { predictMatch, predictChampion, getConfig }
+module.exports = { predictMatch, predictChampion, getConfig, calcHalfFull, calcHalfFullPoisson }

@@ -125,11 +125,14 @@ function poissonPmf(k, lambda) {
 
 function generateSyntheticOdds(homeRank, awayRank, rqNum) {
   const diff = (awayRank || 50) - (homeRank || 50)
-  let hXg = 1.55 + diff / 48
-  let aXg = 1.15 - diff / 48
-  if (diff > 40) { hXg += 0.3; aXg -= 0.15 }
-  hXg = Math.max(0.3, hXg)
-  aXg = Math.max(0.3, aXg)
+  const rankGap = Math.abs(diff)
+  let hXg = 1.75 + diff / 45
+  let aXg = 1.25 - diff / 45
+  if (rankGap > 50) { hXg += 0.7; aXg -= 0.3 }
+  else if (rankGap > 30) { hXg += 0.35; aXg -= 0.15 }
+  else if (rankGap > 15) { hXg += 0.1; aXg -= 0.05 }
+  hXg = Math.max(0.5, Math.min(5.0, hXg))
+  aXg = Math.max(0.2, Math.min(3.5, aXg))
 
   const maxGoals = 7
   const grid = []
