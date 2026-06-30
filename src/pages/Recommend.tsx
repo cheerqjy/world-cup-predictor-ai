@@ -15,6 +15,12 @@ interface SelectedBet {
   optionKey: string; odds: number; prob: number; realOdds: boolean; handicap?: number
 }
 
+interface ScoreBet {
+  type: string; typeLabel: string; marketTitle: string; marketTags: string[]; betName: string
+  optionKey: string; odds: number; prob: number; realOdds: boolean
+  optionKey2?: string; betName2?: string; odds2?: number; prob2?: number; combinedProb?: number
+}
+
 interface Pick {
   match_id: number; date: string; time: string; round: string; group_name: string; match_number: number
   home: { id: string; name_cn: string; flag: string; ranking: number }
@@ -31,6 +37,7 @@ interface Pick {
   markets?: Market[]
   selectedBet?: SelectedBet | null
   bestValueBet?: SelectedBet & { optionKey2?: string; betName2?: string; odds2?: number } | null
+  bestScoreBet?: ScoreBet | null
 }
 
 interface MatchBet {
@@ -38,6 +45,7 @@ interface MatchBet {
   type: string; typeLabel: string; marketTitle: string; marketTags: string[]; betName: string; optionKey: string
   odds: number; prob: number; won: boolean | null; realOdds: boolean; handicap?: number
   optionKey2?: string; betName2?: string; odds2?: number; wonKey?: string | null
+  prob2?: number; combinedProb?: number
 }
 
 interface BetSlip {
@@ -48,7 +56,8 @@ interface BetSlip {
 
 interface DayGroup {
   date: string; picks: Pick[]; betSlip: BetSlip; dailyProfit: number
-  betSlip2?: BetSlip
+  betSlip2?: BetSlip; dailyProfit2?: number
+  betSlip3?: BetSlip; dailyProfit3?: number
 }
 
 interface UpsetAnalysis {
@@ -254,6 +263,67 @@ function renderSlip2(slip: BetSlip, dailyProfit: number, showDate?: string) {
   )
 }
 
+function renderSlip3(slip: BetSlip, dailyProfit: number, showDate?: string) {
+  return (
+    <div className="rec-slip rec-slip-board">
+      <div className="rec-slip-head">
+        <div>
+          <div className="rec-slip-mode">{slip.type}</div>
+          <div className="rec-slip-sub">{showDate ? `${showDate} · ` : ''}已选 {slip.matches.length} 场 · {slip.注数} 注</div>
+        </div>
+        <div className={`rec-slip-status ${slip.status}`}>
+          {slip.status === 'won' ? '已命中' : slip.status === 'lost' ? '未命中' : '待开奖'}
+        </div>
+      </div>
+
+      <div className="rec-slip-match-list">
+        {slip.matches.map((match, index) => (
+          <div key={`${match.matchId}-${match.type}`} className={`rec-slip-match ${match.won === true ? 'bet-win' : match.won === false ? 'bet-lose' : ''}`}>
+            <div className="rec-slip-tag">{match.marketTitle}</div>
+            <div className="rec-slip-match-main">
+              <div className="rec-slip-match-line">
+                <span className="bet-num">{index + 1}</span>
+                <span className="bet-teams">{match.home.flag}{match.home.name_cn} vs {match.away.flag}{match.away.name_cn}</span>
+                <span className="bet-source">比分双选</span>
+              </div>
+              <div className="rec-slip-match-line rec-slip-match-line2">
+                <span className="bet-name">
+                  <span className={match.won === null ? '' : (match.optionKey === match.wonKey ? 'bet-name-hit' : 'bet-name-miss')}>{match.betName}</span>
+                  {match.betName2 ? <><span className="bet-name-sep"> / </span><span className={match.won === null ? '' : (match.optionKey2 === match.wonKey ? 'bet-name-hit' : 'bet-name-miss')}>{match.betName2}</span></> : ''}
+                </span>
+                <span className="bet-type">{match.typeLabel}</span>
+                <span className="bet-odds">
+                  <span className={match.won !== null ? (match.wonKey === match.optionKey ? 'bet-odds-hit' : 'bet-odds-miss') : ''}>@{match.odds.toFixed(2)}</span>
+                  {match.odds2 ? <>
+                    <span className="bet-name-sep"> / </span>
+                    <span className={match.won !== null ? (match.wonKey === match.optionKey2 ? 'bet-odds-hit' : 'bet-odds-miss') : ''}>@{match.odds2.toFixed(2)}</span>
+                  </> : ''}
+                </span>
+                {match.won !== null && (
+                  <span className={`bet-result ${match.won ? 'bet-result-win' : 'bet-result-lose'}`}>
+                    {match.won ? '✓' : '✗'}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className={`rec-slip-footer ${dailyProfit > 0 ? 'slip-profit' : dailyProfit < 0 ? 'slip-loss' : ''}`}>
+        <div className="slip-row">
+          <span>投注: {slip.amount}元 {slip.注数}注</span>
+          <span>过关: {formatPassLabel(slip.passType || '单关')}</span>
+        </div>
+        <div className="slip-row">
+          <span>综合概率: {slip.matches.reduce((s, m) => (s * (m.combinedProb || m.prob)), 1) >= 0.01 ? `${(slip.matches.reduce((s, m) => (s * (m.combinedProb || m.prob)), 1) * 100).toFixed(0)}%` : '<1%'}</span>
+          <span>盈亏: {dailyProfit >= 0 ? '+' : ''}{dailyProfit.toFixed(2)}元</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Recommend() {
   const [active, setActive] = useState<DayGroup | null>(null)
   const [past, setPast] = useState<DayGroup[]>([])
@@ -344,6 +414,20 @@ export function Recommend() {
                     <span className="rec-summary-odds" style={{color: '#fff'}}>{active.betSlip2.matches.length === 1 ? '单关' : `${active.betSlip2.matches.length}串1`} @{active.betSlip2.combinedOdds.toFixed(2)}</span>
                   </div>
                   {renderSlip2(active.betSlip2, (active as any).dailyProfit2 || 0)}
+                </div>
+              )}
+
+              {/* 方案三：比分双选 */}
+              {active.betSlip3 && active.betSlip3.matches.length > 0 && (
+                <div className="rec-day" style={{marginTop: '16px'}}>
+                  <div className="rec-day-header rec-day-header-strong" style={{background: 'linear-gradient(135deg, #7c3aed, #5b21b6)'}}>
+                    <div>
+                      <span className="rec-date" style={{color: '#fff'}}>比分双选</span>
+                      <span className="rec-budget" style={{color: 'rgba(255,255,255,0.9)'}}>每场2比分 · {active.betSlip3.matches.length}场</span>
+                    </div>
+                    <span className="rec-summary-odds" style={{color: '#fff'}}>{active.betSlip3.matches.length === 1 ? '单关' : `${active.betSlip3.matches.length}串1`} @{active.betSlip3.combinedOdds.toFixed(2)}</span>
+                  </div>
+                  {renderSlip3(active.betSlip3, (active as any).dailyProfit3 || 0)}
                 </div>
               )}
 
@@ -467,6 +551,11 @@ export function Recommend() {
               {day.betSlip2 && day.betSlip2.matches.length > 0 && (
                 <div style={{marginTop: '8px'}}>
                   {renderSlip2(day.betSlip2, (day as any).dailyProfit2 || 0, fmtDate(day.date))}
+                </div>
+              )}
+              {day.betSlip3 && day.betSlip3.matches.length > 0 && (
+                <div style={{marginTop: '8px'}}>
+                  {renderSlip3(day.betSlip3, (day as any).dailyProfit3 || 0, fmtDate(day.date))}
                 </div>
               )}
             </div>

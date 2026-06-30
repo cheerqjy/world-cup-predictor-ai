@@ -87,17 +87,21 @@ async function fetchCalculatorOdds() {
   return odds
 }
 
-async function fetchOdds() {
+function fetchOdds(forceRefresh) {
   const now = Date.now()
-  if (cachedOdds && now - lastFetch < CACHE_TTL) return cachedOdds
+  if (!forceRefresh && cachedOdds && now - lastFetch < CACHE_TTL) return cachedOdds
 
   try {
-    const odds = await fetchCalculatorOdds()
-    if (Object.keys(odds).length > 0) {
-      cachedOdds = odds
-      lastFetch = now
-      return odds
-    }
+    return fetchCalculatorOdds().then(odds => {
+      if (Object.keys(odds).length > 0) {
+        cachedOdds = odds
+        lastFetch = now
+        // 保存到数据库
+        try { saveOddsToDb(require('./db').getDb()) } catch (e) {}
+        return odds
+      }
+      return cachedOdds || {}
+    })
   } catch (e) { console.log(`[Odds] fetchOdds 异常: ${e.message}`) }
 
   return cachedOdds || {}
@@ -208,13 +212,13 @@ function saveOddsToDb(db) {
 function startOddsCron(db) {
   async function refresh() {
     try {
-      await fetchOdds()
+      await fetchOdds(true)
       if (cachedOdds) saveOddsToDb(db)
     } catch (e) { console.log(`[Odds] cron 刷新失败: ${e.message}`) }
   }
   refresh()
-  setInterval(refresh, 30 * 60 * 1000)
-  console.log('[Odds] 定时任务已启动 (每30分钟刷新)')
+  setInterval(refresh, 2 * 60 * 1000)
+  console.log('[Odds] 定时任务已启动 (每2分钟刷新)')
 }
 
 module.exports = { fetchOdds, getOddsForMatch, generateSyntheticOdds, generateAllSyntheticOdds, saveOddsToDb, startOddsCron }

@@ -1,6 +1,6 @@
 const express = require('express')
 const { getDb } = require('../db')
-const { fetchOdds, getOddsForMatch } = require('../odds')
+const { fetchOdds, getOddsForMatch, generateSyntheticOdds } = require('../odds')
 const { getBeijingDateStr, getBeijingNow, getRecommendDate, isMatchExpired, getBeijingHourMin } = require('../tz')
 
 const router = express.Router()
@@ -426,7 +426,12 @@ function selectBetFromMarkets(markets) {
 
 function buildRecommendationPackage(picks, realOddsMap) {
   const enrichedPicks = picks.map(pick => {
-    const oddsData = normalizeRealOdds(realOddsMap?.[pick.match_id])
+    let oddsData = normalizeRealOdds(realOddsMap?.[pick.match_id])
+    // 没有真实赔率时，用 Poisson 合成赔率兜底
+    if (!oddsData) {
+      const rqNum = Math.round(((pick.home?.ranking || 50) - (pick.away?.ranking || 50)) / 25)
+      oddsData = generateSyntheticOdds(pick.home?.ranking || 50, pick.away?.ranking || 50, rqNum)
+    }
     const confidence = parseConfidence(pick.prediction.confidence_detail)
     const markets = [
       buildSpfMarket(pick, oddsData, confidence[1] || 0.5),
@@ -437,10 +442,11 @@ function buildRecommendationPackage(picks, realOddsMap) {
     ]
     const selectedBet = selectBetFromMarkets(markets)
     const bestValueBet = selectBestValueBet(pick, selectedBet, oddsData)
-    return { ...pick, markets, selectedBet, bestValueBet }
+    const bestScoreBet = selectBestScoreBet(pick, oddsData)
+    return { ...pick, markets, selectedBet, bestValueBet, bestScoreBet }
   })
 
-  return { picks: enrichedPicks, betSlip: buildBetSlip(enrichedPicks), betSlip2: buildBetSlip2(enrichedPicks) }
+  return { picks: enrichedPicks, betSlip: buildBetSlip(enrichedPicks), betSlip2: buildBetSlip2(enrichedPicks), betSlip3: buildBetSlip3(enrichedPicks) }
 }
 
 function selectBestValueBet(pick, scheme1Bet, oddsData) {
@@ -519,6 +525,40 @@ function selectBestValueBet(pick, scheme1Bet, oddsData) {
   if (candidates[0] && candidates[0].realProb >= 0.70) return candidates[0]
 
   return null
+}
+
+function selectBestScoreBet(pick, oddsData) {
+  const homeRank = pick.home?.ranking || 50
+  const awayRank = pick.away?.ranking || 50
+  const { grid } = computeScoreGrid(homeRank, awayRank)
+  const homeScore = typeof pick.prediction.home_score === 'number' ? pick.prediction.home_score : 0
+  const awayScore = typeof pick.prediction.away_score === 'number' ? pick.prediction.away_score : 0
+
+  const scoreProbs = grid.map(s => ({ key: `${s.h}:${s.a}`, prob: s.prob }))
+  scoreProbs.sort((a, b) => b.prob - a.prob)
+
+  const top2 = scoreProbs.slice(0, 2)
+  if (top2.length < 2) return null
+
+  const getScoreOdds = (key) => {
+    if (oddsData?.scoreOdds?.[key]) return Number(oddsData.scoreOdds[key]) || 0
+    return 0
+  }
+
+  const o1 = getScoreOdds(top2[0].key)
+  const o2 = getScoreOdds(top2[1].key)
+
+  return {
+    type: 'bf', typeLabel: '比分', marketTitle: '比分', marketTags: ['单关'],
+    betName: top2[0].key, optionKey: top2[0].key,
+    odds: o1 > 0 ? round2(o1) : round2(estimateOdds(top2[0].prob)),
+    prob: round2(top2[0].prob),
+    optionKey2: top2[1].key, betName2: top2[1].key,
+    odds2: o2 > 0 ? round2(o2) : round2(estimateOdds(top2[1].prob)),
+    prob2: round2(top2[1].prob),
+    combinedProb: round2(top2[0].prob + top2[1].prob),
+    realOdds: !!(o1 > 0 || o2 > 0),
+  }
 }
 
 function buildBetSlip(picks) {
@@ -626,6 +666,59 @@ function buildBetSlip2(picks) {
   }
 }
 
+function buildBetSlip3(picks) {
+  const selectedMatches = picks.filter(pick => pick.bestScoreBet)
+  if (selectedMatches.length === 0) {
+    return { type: '比分双选', passType: '', passOptions: [], matches: [], combinedOdds: 0, amount: 0, 注数: 0, multiple: 1, payout: 0, status: 'pending', potentialPayout: 0 }
+  }
+
+  const sorted = [...selectedMatches].sort((a, b) => b.bestScoreBet.combinedProb - a.bestScoreBet.combinedProb)
+  const top = sorted.slice(0, 3)
+
+  const passSize = top.length === 1 ? 1 : Math.min(top.length, 4)
+  const passOptions = top.length === 1
+    ? ['单关']
+    : Array.from({ length: passSize - 1 }, (_, index) => `${index + 2}串1`)
+  const combinedOdds = round2(top.reduce((total, pick) => total * pick.bestScoreBet.odds, 1))
+  const optionsPerMatch = 2
+  const totalZhu = top.length > 0 ? Math.pow(optionsPerMatch, top.length) : 0
+  const amount = totalZhu * 2
+
+  return {
+    type: '比分双选',
+    passType: top.length === 1 ? '单关' : `${passSize}串1`,
+    passOptions,
+    matches: top.map(pick => ({
+      matchId: pick.match_id,
+      home: pick.home,
+      away: pick.away,
+      type: pick.bestScoreBet.type,
+      typeLabel: pick.bestScoreBet.typeLabel,
+      marketTitle: pick.bestScoreBet.marketTitle,
+      marketTags: pick.bestScoreBet.marketTags,
+      betName: pick.bestScoreBet.betName,
+      optionKey: pick.bestScoreBet.optionKey,
+      odds: pick.bestScoreBet.odds,
+      prob: pick.bestScoreBet.prob,
+      realOdds: pick.bestScoreBet.realOdds,
+      handicap: pick.bestScoreBet.handicap,
+      optionKey2: pick.bestScoreBet.optionKey2,
+      betName2: pick.bestScoreBet.betName2,
+      odds2: pick.bestScoreBet.odds2,
+      prob2: pick.bestScoreBet.prob2,
+      combinedProb: pick.bestScoreBet.combinedProb,
+      won: null,
+    })),
+    combinedOdds,
+    amount,
+    注数: totalZhu,
+    multiple: 1,
+    payout: 0,
+    status: 'pending',
+    potentialPayout: round2(2 * combinedOdds),
+  }
+}
+
 function settleBetSlip(betSlip, picks) {
   if (!betSlip || betSlip.matches.length === 0) return betSlip
 
@@ -669,7 +762,7 @@ function settleBetSlip(betSlip, picks) {
   // 双选稳胆：按实际命中的选项赔率计算
   let payout = 0
   if (allWon) {
-    const isShuangXuan = betSlip.type === '双选稳胆'
+    const isShuangXuan = betSlip.type === '双选稳胆' || betSlip.type === '比分双选'
     if (isShuangXuan) {
       // 每个双选场次取实际命中的那个选项的赔率
       const actualCombinedOdds = round2(settledMatches.reduce((total, match) => {
@@ -881,6 +974,7 @@ router.get('/', async (req, res) => {
   const activePack = buildRecommendationPackage(activePicks, realOddsMap)
   const activeBetSlip = settleBetSlip(activePack.betSlip, activePack.picks)
   const activeBetSlip2 = settleBetSlip(activePack.betSlip2, activePack.picks)
+  const activeBetSlip3 = settleBetSlip(activePack.betSlip3, activePack.picks)
   const activeDailyProfit = activeBetSlip.status === 'won'
     ? round2(activeBetSlip.payout - activeBetSlip.amount)
     : activeBetSlip.status === 'lost'
@@ -890,6 +984,11 @@ router.get('/', async (req, res) => {
     ? round2(activeBetSlip2.payout - activeBetSlip2.amount)
     : activeBetSlip2.status === 'lost'
       ? round2(-activeBetSlip2.amount)
+      : 0
+  const activeDailyProfit3 = activeBetSlip3.status === 'won'
+    ? round2(activeBetSlip3.payout - activeBetSlip3.amount)
+    : activeBetSlip3.status === 'lost'
+      ? round2(-activeBetSlip3.amount)
       : 0
 
   // 历史记录
@@ -909,6 +1008,7 @@ router.get('/', async (req, res) => {
     const dayPack = buildRecommendationPackage(rows.map(formatPick), realOddsMap)
     const slip = settleBetSlip(dayPack.betSlip, dayPack.picks)
     const slip2 = settleBetSlip(dayPack.betSlip2, dayPack.picks)
+    const slip3 = settleBetSlip(dayPack.betSlip3, dayPack.picks)
     const dailyProfit = slip.status === 'won'
       ? round2(slip.payout - slip.amount)
       : slip.status === 'lost'
@@ -919,7 +1019,12 @@ router.get('/', async (req, res) => {
       : slip2.status === 'lost'
         ? round2(-slip2.amount)
         : 0
-    return { date, picks: dayPack.picks, betSlip: slip, betSlip2: slip2, dailyProfit, dailyProfit2 }
+    const dailyProfit3 = slip3.status === 'won'
+      ? round2(slip3.payout - slip3.amount)
+      : slip3.status === 'lost'
+        ? round2(-slip3.amount)
+        : 0
+    return { date, picks: dayPack.picks, betSlip: slip, betSlip2: slip2, betSlip3: slip3, dailyProfit, dailyProfit2, dailyProfit3 }
   })
 
   res.json({
@@ -928,8 +1033,10 @@ router.get('/', async (req, res) => {
       picks: activePack.picks,
       betSlip: activeBetSlip,
       betSlip2: activeBetSlip2,
+      betSlip3: activeBetSlip3,
       dailyProfit: activeDailyProfit,
       dailyProfit2: activeDailyProfit2,
+      dailyProfit3: activeDailyProfit3,
     },
     upsetAnalysis,
     past: pastDays,
@@ -964,6 +1071,7 @@ router.get('/', async (req, res) => {
       const allDayPack = buildRecommendationPackage(allDayPicks, realOddsMap)
       const allDaySlip = settleBetSlip(allDayPack.betSlip, allDayPack.picks)
       const allDaySlip2 = settleBetSlip(allDayPack.betSlip2, allDayPack.picks)
+      const allDaySlip3 = settleBetSlip(allDayPack.betSlip3, allDayPack.picks)
       const allDayProfit = allDaySlip.status === 'won'
         ? round2(allDaySlip.payout - allDaySlip.amount)
         : allDaySlip.status === 'lost'
@@ -973,6 +1081,11 @@ router.get('/', async (req, res) => {
         ? round2(allDaySlip2.payout - allDaySlip2.amount)
         : allDaySlip2.status === 'lost'
           ? round2(-allDaySlip2.amount)
+          : 0
+      const allDayProfit3 = allDaySlip3.status === 'won'
+        ? round2(allDaySlip3.payout - allDaySlip3.amount)
+        : allDaySlip3.status === 'lost'
+          ? round2(-allDaySlip3.amount)
           : 0
 
       // 删除旧快照并重新插入（确保数据完整）
@@ -985,6 +1098,8 @@ router.get('/', async (req, res) => {
         dailyProfit: allDayProfit,
         betSlip2: allDaySlip2,
         dailyProfit2: allDayProfit2,
+        betSlip3: allDaySlip3,
+        dailyProfit3: allDayProfit3,
       }))
       console.log(`[Recommend] 已保存 ${startDate} 的推荐快照 (${allDayPack.picks.length} 场)`)
     }
@@ -1026,6 +1141,8 @@ router.get('/snapshots', (req, res) => {
         dailyProfit: data.dailyProfit,
         betSlip2: data.betSlip2 || { type: '双选稳胆', passType: '', passOptions: [], matches: [], combinedOdds: 0, amount: 0, 注数: 0, multiple: 1, payout: 0, status: 'pending', potentialPayout: 0 },
         dailyProfit2: data.dailyProfit2 || 0,
+        betSlip3: data.betSlip3 || { type: '比分双选', passType: '', passOptions: [], matches: [], combinedOdds: 0, amount: 0, 注数: 0, multiple: 1, payout: 0, status: 'pending', potentialPayout: 0 },
+        dailyProfit3: data.dailyProfit3 || 0,
       }
     }
 
@@ -1123,6 +1240,7 @@ router.get('/snapshots', (req, res) => {
         const dayPack = buildRecommendationPackage(rows.map(formatPickFallback), realOddsMap)
         const slip = settleBetSlip(dayPack.betSlip, dayPack.picks)
         const slip2 = settleBetSlip(dayPack.betSlip2, dayPack.picks)
+        const slip3 = settleBetSlip(dayPack.betSlip3, dayPack.picks)
         const dailyProfit = slip.status === 'won'
           ? round2(slip.payout - slip.amount)
           : slip.status === 'lost'
@@ -1133,7 +1251,12 @@ router.get('/snapshots', (req, res) => {
           : slip2.status === 'lost'
             ? round2(-slip2.amount)
             : 0
-        snapshotMap[date] = { date, picks: dayPack.picks, betSlip: slip, betSlip2: slip2, dailyProfit, dailyProfit2 }
+        const dailyProfit3 = slip3.status === 'won'
+          ? round2(slip3.payout - slip3.amount)
+          : slip3.status === 'lost'
+            ? round2(-slip3.amount)
+            : 0
+        snapshotMap[date] = { date, picks: dayPack.picks, betSlip: slip, betSlip2: slip2, betSlip3: slip3, dailyProfit, dailyProfit2, dailyProfit3 }
       }
     }
 
@@ -1154,20 +1277,28 @@ router.get('/snapshots', (req, res) => {
         if (syntheticOddsMap[key]) matchIdToOdds[m.id] = syntheticOddsMap[key]
       }
       for (const [date, entry] of Object.entries(snapshotMap)) {
-        if (entry.betSlip2.matches && entry.betSlip2.matches.length > 0) continue
+        if (entry.betSlip2.matches && entry.betSlip2.matches.length > 0 && entry.betSlip3 && entry.betSlip3.matches && entry.betSlip3.matches.length > 0) continue
         try {
           const backfilledPack = buildRecommendationPackage(entry.picks, matchIdToOdds)
           entry.picks = backfilledPack.picks
-          entry.betSlip2 = settleBetSlip(backfilledPack.betSlip2, entry.picks)
-          entry.dailyProfit2 = entry.betSlip2.status === 'won'
-            ? round2(entry.betSlip2.payout - entry.betSlip2.amount)
-            : entry.betSlip2.status === 'lost' ? round2(-entry.betSlip2.amount) : 0
+          if (!entry.betSlip2.matches || entry.betSlip2.matches.length === 0) {
+            entry.betSlip2 = settleBetSlip(backfilledPack.betSlip2, entry.picks)
+            entry.dailyProfit2 = entry.betSlip2.status === 'won'
+              ? round2(entry.betSlip2.payout - entry.betSlip2.amount)
+              : entry.betSlip2.status === 'lost' ? round2(-entry.betSlip2.amount) : 0
+          }
+          if (!entry.betSlip3 || !entry.betSlip3.matches || entry.betSlip3.matches.length === 0) {
+            entry.betSlip3 = settleBetSlip(backfilledPack.betSlip3, entry.picks)
+            entry.dailyProfit3 = entry.betSlip3.status === 'won'
+              ? round2(entry.betSlip3.payout - entry.betSlip3.amount)
+              : entry.betSlip3.status === 'lost' ? round2(-entry.betSlip3.amount) : 0
+          }
           db.prepare('UPDATE recommendation_snapshots SET active_data = ? WHERE snapshot_date = ?').run(
-            JSON.stringify({ picks: entry.picks, betSlip: entry.betSlip, dailyProfit: entry.dailyProfit, betSlip2: entry.betSlip2, dailyProfit2: entry.dailyProfit2 }),
+            JSON.stringify({ picks: entry.picks, betSlip: entry.betSlip, dailyProfit: entry.dailyProfit, betSlip2: entry.betSlip2, dailyProfit2: entry.dailyProfit2, betSlip3: entry.betSlip3, dailyProfit3: entry.dailyProfit3 }),
             date
           )
-          console.log(`[History] ${date} 补方案2: ${entry.betSlip2.matches.length} 场`)
-        } catch (e) { console.log(`[History] ${date} 补方案2失败: ${e.message}`) }
+          console.log(`[History] ${date} 补方案2+3: 方案2=${entry.betSlip2.matches.length}场, 方案3=${entry.betSlip3.matches.length}场`)
+        } catch (e) { console.log(`[History] ${date} 补方案失败: ${e.message}`) }
       }
     }
 
@@ -1207,17 +1338,31 @@ router.get('/snapshots', (req, res) => {
           }
         }
       }
+      // 检查 betSlip3 是否有未结算的已完成比赛
+      if (!needsResettle && entry.betSlip3?.matches?.length > 0) {
+        for (const match of entry.betSlip3.matches) {
+          if (match.won === null || match.won === undefined) {
+            const pick = entry.picks.find(p => p.match_id === match.matchId)
+            if (pick?.actual) { needsResettle = true; break }
+          }
+        }
+      }
       if (needsResettle) {
         const beforeLen2 = entry.betSlip2?.matches?.length || 0
+        const beforeLen3 = entry.betSlip3?.matches?.length || 0
         entry.betSlip = settleBetSlip(entry.betSlip, entry.picks)
         entry.betSlip2 = settleBetSlip(entry.betSlip2, entry.picks)
+        entry.betSlip3 = settleBetSlip(entry.betSlip3, entry.picks)
         const afterLen2 = entry.betSlip2?.matches?.length || 0
+        const afterLen3 = entry.betSlip3?.matches?.length || 0
         if (beforeLen2 !== afterLen2) console.log(`[Resettle] ${date}: betSlip2 ${beforeLen2}→${afterLen2}`)
+        if (beforeLen3 !== afterLen3) console.log(`[Resettle] ${date}: betSlip3 ${beforeLen3}→${afterLen3}`)
         entry.dailyProfit = entry.betSlip.status === 'won' ? round2(entry.betSlip.payout - entry.betSlip.amount) : entry.betSlip.status === 'lost' ? round2(-entry.betSlip.amount) : 0
         entry.dailyProfit2 = entry.betSlip2.status === 'won' ? round2(entry.betSlip2.payout - entry.betSlip2.amount) : entry.betSlip2.status === 'lost' ? round2(-entry.betSlip2.amount) : 0
+        entry.dailyProfit3 = entry.betSlip3.status === 'won' ? round2(entry.betSlip3.payout - entry.betSlip3.amount) : entry.betSlip3.status === 'lost' ? round2(-entry.betSlip3.amount) : 0
         // 持久化到DB，避免下次请求重新计算
         db.prepare('UPDATE recommendation_snapshots SET active_data = ? WHERE snapshot_date = ?').run(
-          JSON.stringify({ picks: entry.picks, betSlip: entry.betSlip, dailyProfit: entry.dailyProfit, betSlip2: entry.betSlip2, dailyProfit2: entry.dailyProfit2 }),
+          JSON.stringify({ picks: entry.picks, betSlip: entry.betSlip, dailyProfit: entry.dailyProfit, betSlip2: entry.betSlip2, dailyProfit2: entry.dailyProfit2, betSlip3: entry.betSlip3, dailyProfit3: entry.dailyProfit3 }),
           date
         )
       }

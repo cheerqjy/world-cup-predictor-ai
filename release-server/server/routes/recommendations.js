@@ -1,6 +1,6 @@
 const express = require('express')
 const { getDb } = require('../db')
-const { fetchOdds, getOddsForMatch } = require('../odds')
+const { fetchOdds, getOddsForMatch, generateSyntheticOdds } = require('../odds')
 const { getBeijingDateStr, getBeijingNow, getRecommendDate, isMatchExpired, getBeijingHourMin } = require('../tz')
 
 const router = express.Router()
@@ -426,7 +426,11 @@ function selectBetFromMarkets(markets) {
 
 function buildRecommendationPackage(picks, realOddsMap) {
   const enrichedPicks = picks.map(pick => {
-    const oddsData = normalizeRealOdds(realOddsMap?.[pick.match_id])
+    let oddsData = normalizeRealOdds(realOddsMap?.[pick.match_id])
+    if (!oddsData) {
+      const rqNum = Math.round(((pick.home?.ranking || 50) - (pick.away?.ranking || 50)) / 25)
+      oddsData = generateSyntheticOdds(pick.home?.ranking || 50, pick.away?.ranking || 50, rqNum)
+    }
     const confidence = parseConfidence(pick.prediction.confidence_detail)
     const markets = [
       buildSpfMarket(pick, oddsData, confidence[1] || 0.5),
