@@ -8,6 +8,7 @@ interface Match {
   away_name_cn: string | null; away_flag: string | null; away_ranking: number | null
   match_date: string; match_time: string; status: string
   home_score: number | null; away_score: number | null
+  home_score_90: number | null; away_score_90: number | null
   half_home_score: number | null; half_away_score: number | null
 }
 
@@ -143,15 +144,15 @@ export function MatchList() {
             </div>
           ) : (
             <div className="match-teams">
-              <div className={`team-slot home ${completed && m.home_score !== null && m.home_score > (m.away_score ?? 0) ? 'winner-team' : ''}`}>
+              <div className={`team-slot home ${completed && m.home_score_90 !== null && m.home_score_90 > (m.away_score_90 ?? 0) ? 'winner-team' : ''}`}>
                 <span className="team-flag">{m.home_flag}</span>
                 <span className="team-name">{m.home_name_cn}</span>
                 <span className="team-rank">#{m.home_ranking}</span>
               </div>
               <div className="vs">
-                {completed && m.home_score !== null ? (
+                {completed && m.home_score_90 !== null ? (
                   <span className="score">
-                    {m.home_score}-{m.away_score}
+                    {m.home_score_90}-{m.away_score_90}
                     <span className="score-half">({m.half_home_score}-{m.half_away_score})</span>
                   </span>
                 ) : pred ? (
@@ -160,7 +161,7 @@ export function MatchList() {
                   <span>VS</span>
                 )}
               </div>
-              <div className={`team-slot away ${completed && m.away_score !== null && m.away_score > (m.home_score ?? 0) ? 'winner-team' : ''}`}>
+              <div className={`team-slot away ${completed && m.away_score_90 !== null && m.away_score_90 > (m.home_score_90 ?? 0) ? 'winner-team' : ''}`}>
                 <span className="team-flag">{m.away_flag}</span>
                 <span className="team-name">{m.away_name_cn}</span>
                 <span className="team-rank">#{m.away_ranking}</span>

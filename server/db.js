@@ -113,6 +113,7 @@ async function initDb() {
         home_team_id TEXT, away_team_id TEXT, match_date TEXT,
         status TEXT DEFAULT 'scheduled',
         home_score INTEGER, away_score INTEGER,
+        home_score_90 INTEGER, away_score_90 INTEGER,
         half_home_score INTEGER, half_away_score INTEGER
       );
       CREATE TABLE IF NOT EXISTS predictions (
@@ -167,6 +168,8 @@ async function initDb() {
     try { db.exec(`ALTER TABLE matches ADD COLUMN match_time TEXT`) } catch (e) {}
     try { db.exec(`ALTER TABLE predictions ADD COLUMN confidence_detail TEXT`) } catch (e) {}
     try { db.exec(`ALTER TABLE predictions ADD COLUMN correct_rq_result INTEGER DEFAULT 0`) } catch (e) {}
+    try { db.exec(`ALTER TABLE matches ADD COLUMN home_score_90 INTEGER`) } catch (e) {}
+    try { db.exec(`ALTER TABLE matches ADD COLUMN away_score_90 INTEGER`) } catch (e) {}
     return db
   })()
 

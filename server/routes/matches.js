@@ -78,23 +78,28 @@ router.put('/:id/result', (req, res) => {
     WHERE id = ?
   `)
 
-  const result1x2 = home_score > away_score ? '胜' : home_score < away_score ? '负' : '平'
-  const totalGoals = home_score + away_score
+  // 使用90分钟比分计算竞彩结果
+  const match = db.prepare('SELECT home_score_90, away_score_90 FROM matches WHERE id = ?').get(req.params.id)
+  const score90Home = match && match.home_score_90 !== null ? match.home_score_90 : home_score
+  const score90Away = match && match.away_score_90 !== null ? match.away_score_90 : away_score
+
+  const result1x2 = score90Home > score90Away ? '胜' : score90Home < score90Away ? '负' : '平'
+  const totalGoals = score90Home + score90Away
   const tgActual = totalGoals >= 7 ? '7+' : String(totalGoals)
   const halfResult = half_home_score > half_away_score ? '胜' : half_home_score < half_away_score ? '负' : '平'
-  const fullResult = home_score > away_score ? '胜' : home_score < away_score ? '负' : '平'
+  const fullResult = score90Home > score90Away ? '胜' : score90Home < score90Away ? '负' : '平'
   const actualHalfFull = `${halfResult}-${fullResult}`
 
   for (const p of preds) {
-    const correctScore = (p.home_score === home_score && p.away_score === away_score) ? 1 : 0
+    const correctScore = (p.home_score === score90Home && p.away_score === score90Away) ? 1 : 0
     const correctResult = p.result_1x2 === result1x2 ? 1 : 0
     const correctTG = (p.total_goals === tgActual || p.total_goals_2 === tgActual) ? 1 : 0
     const correctHF = p.half_full_result === actualHalfFull ? 1 : 0
     updateCorrect.run(correctScore, correctResult, correctTG, correctHF, p.id)
   }
 
-  const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.id)
-  res.json(match)
+  const updatedMatch = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.id)
+  res.json(updatedMatch)
 })
 
 router.get('/:id/predictions', (req, res) => {

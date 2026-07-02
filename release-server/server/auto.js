@@ -10,7 +10,7 @@ function updateCompletedAccuracy() {
   const completed = db.prepare(`
     SELECT p.id, p.match_id, p.home_score as ph, p.away_score as pa,
       p.result_1x2, p.total_goals, p.total_goals_2, p.half_full_result, p.handicap_result,
-      m.home_score as mh, m.away_score as ma,
+      m.home_score_90 as mh, m.away_score_90 as ma,
       m.half_home_score as mhh, m.half_away_score as mha,
       ht.name_cn as home_name, at.name_cn as away_name
     FROM predictions p
@@ -155,7 +155,7 @@ async function archiveOldRecommendations() {
           p.half_full_result, p.confidence, p.confidence_detail,
           m.match_date, m.match_time, m.round, m.group_name, m.match_number, m.status,
           m.home_team_id, m.away_team_id,
-          m.home_score as actual_home, m.away_score as actual_away,
+          m.home_score_90 as actual_home, m.away_score_90 as actual_away,
           m.half_home_score as actual_half_home, m.half_away_score as actual_half_away,
           ht.name_cn as home_name_cn, ht.flag as home_flag, ht.ranking as home_ranking,
           at.name_cn as away_name_cn, at.flag as away_flag, at.ranking as away_ranking
